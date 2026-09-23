@@ -38,7 +38,7 @@ The generated files are not reproducible between toolchains / architectures!
 ```mermaid
 flowchart LR
     H["harness.c"] -->|"clang, llvm-link"| BC[".bc"]
-    BC -->|"mlir-translate, mlir-opt"| MLIR["generic .mlir"]
+    BC -->|"mlir-translate"| MLIR["generic .mlir"]
     BC -->|"instrument, run"| NATIVE["native\nexecution statistics"]
     MLIR -->|"veir-interpret"| VEIR["veir-interpret\nexecution statistics"]
     VEIR --> COMPARE{{"compare"}}
