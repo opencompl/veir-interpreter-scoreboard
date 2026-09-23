@@ -1,0 +1,18 @@
+{
+  "archive_sha256": "14ddc32b2b79ee758ddf481ea769fd0d78b23b45b8148a470b258403093fbace",
+  "cflags": [
+    "-O3",
+    "-fno-vectorize",
+    "-fno-slp-vectorize"
+  ],
+  "schema_version": 1,
+  "toolchain": {
+    "clang": "clang version 23.1.0-rc1",
+    "llvm-link": "LLVM version 23.1.0-rc1",
+    "llvm-profdata": "LLVM version 23.1.0-rc1",
+    "mlir-opt": "LLVM version 23.1.0-rc1",
+    "mlir-translate": "LLVM version 23.1.0-rc1",
+    "opt": "LLVM version 23.1.0-rc1",
+    "target": "x86_64-unknown-linux-gnu"
+  }
+}
