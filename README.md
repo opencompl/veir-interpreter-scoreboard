@@ -45,5 +45,6 @@ flowchart LR
     NATIVE --> COMPARE
 ```
 
-Both branches start from the same `.bc`: one produces the generic MLIR that `veir-interpret` executes, the other produces ground-truth execution statistics by actually running the (instrumented) harness natively. The scoreboard compares the two and reports how closely `veir-interpret`'s statistics match the native run.
+Both branches start from the same `.bc`: one produces the generic MLIR that `veir-interpret` executes, the other produces ground-truth execution statistics by actually running the (instrumented) harness natively.  
+The scoreboard compares the two and reports how closely `veir-interpret`'s statistics match the native run.
 Currently, we only record the function execution counts.
