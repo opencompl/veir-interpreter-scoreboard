@@ -1,0 +1,11 @@
+.cache/
+.direnv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.envrc
+veir/
+corpus/
+.claude/settings.local.json*
