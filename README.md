@@ -1,7 +1,7 @@
 # Veir-Interpreter Scoreboard
 
 Like the [veir-sqlite](https://github.com/opencompl/veir-sqlite) scoreboard, but for `veir-interpret`.
-This compares `veir-interpret` with `llubi` using selected tests from `llubi`'s test-suite.
+This compares `veir-interpret` with [`llubi`](https://llvm.org/docs/CommandGuide/llubi.html) (LLVM UB-aware Interpreter) using selected tests from `llubi`'s test-suite.
 
 ## Updating the Scoreboard
 
