@@ -25,7 +25,6 @@ The following commands regenerate the corpus with the toolchain provided by upst
 ```bash
 nix flake update
 nix develop
-get-upstream-veir veir
 make refresh-corpus
 ```
 
