@@ -30,6 +30,8 @@ class Outcome:
     line: str | None  # The line of the output it was read from.
     value: str | None = None
     reason: str | None = None
+    operation: str | None = None  # The operation it stopped at.
+    mlir_line: str | None = None  # Where that operation is in the `.mlir` file.
 
 
 def find(pattern: str, lines: Iterable[str]) -> re.Match[str] | None:
@@ -52,6 +54,10 @@ def llubi_outcome(trace: str) -> Outcome:
     raise ValueError("llubi neither returned from main nor reported UB")
 
 
+# `<file>:<line>:<col>: error: <message>` (or `note:`), then the operation it is about.
+DIAGNOSTIC = re.compile(r"^\S+:(\d+):\d+: (?:error|note): (.*)\n\s*(.*)$", re.MULTILINE)
+
+
 def veir_outcome(trace: str) -> Outcome:
     lines = trace.splitlines()
     status = exit_status(lines)
@@ -59,22 +65,27 @@ def veir_outcome(trace: str) -> Outcome:
         return Outcome("timeout", None)
     if status == "0" and (output := find(r"Program output: (.*)", lines)):
         return Outcome("returned", output[0], veir_value(output[1]))
-    if status == "0" and (ub := find(r"Undefined behavior.*", lines)):
-        return Outcome("UB", ub[0])
-    if error := find(r"Error.*", lines):
-        return Outcome("unsupported", error[0], reason=unsupported_reason(error[0]))
+    diagnostic = DIAGNOSTIC.search(trace)
+    mlir_line, operation = (
+        (diagnostic[1], diagnostic[3]) if diagnostic else (None, None)
+    )
+    if status == "0" and (ub := find(r"Undefined behavior", lines)):
+        return Outcome("UB", ub[0], operation=operation, mlir_line=mlir_line)
+    if verifier := find(r"Error verifying input program: (.*)", lines):
+        return Outcome(
+            "unsupported", verifier[0], reason=f"**verifier**: {code(verifier[1])}"
+        )
+    if diagnostic:
+        line = diagnostic[0].splitlines()[0]
+        reason = diagnostic_reason(diagnostic[2], diagnostic[3])
+        return Outcome("unsupported", line, reason=reason, mlir_line=mlir_line)
     return Outcome("unsupported", None, reason=f"crashed with exit status {status}")
 
 
-def unsupported_reason(error: str) -> str:
-    if stuck := re.match(r"Error while interpreting module(?: at: (.*))?$", error):
-        where = f" at {code(operation_name(stuck[1]))}" if stuck[1] else ""
-        return f"**interpreter**: failed{where}"
-    if verifier := re.match(r"Error verifying input program: (.*)$", error):
-        return f"**verifier**: {code(verifier[1])}"
-    if parser := re.match(r"Error: \S+:\d+:\d+: error: (.*)$", error):
-        return f"**parser**: {code(parser[1])}"
-    return code(error)
+def diagnostic_reason(message: str, operation: str) -> str:
+    if message == "failed to interpret operation":
+        return f"**interpreter**: failed at {code(operation_name(operation))}"
+    return f"**parser**: {code(message)}"
 
 
 def operation_name(operation: str) -> str:
@@ -197,9 +208,14 @@ def file_name(test: Test) -> str:
 def describe(outcome: Outcome) -> str:
     if outcome.kind == "returned":
         return f"returned `{outcome.value}`"
+    where = f" (line {outcome.mlir_line})" if outcome.mlir_line else ""
+    if outcome.kind == "unsupported":
+        return (outcome.reason or outcome.kind) + where
+    if outcome.operation is not None:
+        return f"UB at {code(outcome.operation)}{where}"
     if outcome.line is not None:
         return code(outcome.line)
-    return outcome.reason or outcome.kind
+    return outcome.kind
 
 
 def results_table(tests: list[Test]) -> list[str]:

@@ -1,0 +1,96 @@
+name: scoreboard
+
+# Keeps SCOREBOARD.md current with VeIR's main branch.
+#
+# GitHub Actions cannot subscribe to another repository, so this polls: every
+# five minutes it compares VeIR's main with the commit SCOREBOARD.md was last
+# scored against (the `veir-interpret` row of its Manifest table) and stops
+# there if nothing moved. Otherwise it builds `veir-interpret` at the new
+# commit, reruns the tests from the committed corpus and commits the new
+# SCOREBOARD.md to main. That push uses GITHUB_TOKEN, so it triggers no workflow.
+# A push to main here (new corpus, new scripts) rescores immediately, and the
+# workflow can be run by hand, with `force` to rescore an unchanged VeIR.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: rescore even if VeIR's main has not moved
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scoreboard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Delayed events should start from current main.
+          ref: ${{ github.ref == 'refs/heads/main' && github.ref || '' }}
+
+      - name: Has VeIR moved?
+        id: veir
+        env:
+          FORCE: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.force == true }}
+        run: |
+          sha=$(git ls-remote https://github.com/opencompl/veir.git refs/heads/main | cut -f1)
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          scored=$(grep '^| veir-interpret |' SCOREBOARD.md | grep -o '[0-9a-f]\{40\}' | head -1 || true)
+          echo "VeIR main: $sha; scored: ${scored:-none}; force: $FORCE"
+          if [ "$sha" = "$scored" ] && [ "$FORCE" != true ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.veir.outputs.stale == 'true'
+        with:
+          repository: opencompl/veir
+          ref: ${{ steps.veir.outputs.sha }}
+          path: veir
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.veir.outputs.stale == 'true'
+
+      # Only veir-interpret is needed; lean-action installs elan and caches .lake.
+      - name: Build veir-interpret
+        if: steps.veir.outputs.stale == 'true'
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: veir
+          build-args: "veir-interpret"
+          test: false
+
+      - name: Score
+        if: steps.veir.outputs.stale == 'true'
+        run: |
+          rm -f SCOREBOARD.md
+          make check-corpus scoreboard --jobs "$(nproc)"
+          cat SCOREBOARD.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish
+        if: steps.veir.outputs.stale == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add SCOREBOARD.md
+          git diff --cached --quiet && exit 0
+          git commit -m "Update SCOREBOARD.md for VeIR ${SHA:0:12}"
+          git push origin HEAD:main
+        env:
+          SHA: ${{ steps.veir.outputs.sha }}

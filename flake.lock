@@ -30,11 +30,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1789984486,
-        "narHash": "sha256-ak1awm2lBfLEAjjbxIFG6eBvbwSpZ3d0G7L8vADOMU4=",
+        "lastModified": 1790792443,
+        "narHash": "sha256-f7upAThdiCuZUnIvcHzE42Ft48nvOcCBeaS2zM58BFw=",
         "owner": "opencompl",
         "repo": "veir",
-        "rev": "9462999134b6a14054981efafc460e2607cf47d7",
+        "rev": "da8b5b3bd5df0d96af226c47d0e5550d38941f72",
         "type": "github"
       },
       "original": {
