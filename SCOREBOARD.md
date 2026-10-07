@@ -172,7 +172,7 @@ results of `llubi`.
 
 | Component | Version | SHA-256 |
 |---|---|---|
-| veir-interpret | [`8c968131b298`](https://github.com/opencompl/veir/commit/8c968131b298ef3664b6b997dc099e3530735f1c) | `02b0ab6fdcf78c39bead1b88f76094233ae4a248708a6e7c72c3bd817ebec1c4` |
+| veir-interpret | [`c8b505cfee36`](https://github.com/opencompl/veir/commit/c8b505cfee36079468542ddcff46e637b27faead) | `0f09b54f29b8a5648d01f30bedf334a4c104089a464d511b69d59ca1f53f33be` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
 | corpus.tar.gz |  | `c81112457ef97ba8597d761fe5b3bad8c3197b2ff4b2bdf8a9dc9d7cbf5ca5d7` |
