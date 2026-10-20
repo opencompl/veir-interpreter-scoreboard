@@ -5,9 +5,9 @@ results of `llubi`.
 
 | Verdict | Tests |
 |---|---:|
-| PASS | 14 (13.7%) |
+| PASS | 15 (14.7%) |
 | MISMATCH | 5 (4.9%) |
-| UNSUPPORTED | 83 (81.4%) |
+| UNSUPPORTED | 82 (80.4%) |
 | TIMEOUT | 0 (0.0%) |
 
 ## Mismatches
@@ -42,7 +42,6 @@ results of `llubi`.
 | **verifier**: `llvm.sitofp: Expected operand 0 to have integer type` | 1 | `clean/fp_cast.ll` |
 | **interpreter**: failed at `llvm.fcmp` | 1 | `clean/fp_cmp.ll` |
 | **interpreter**: failed at `llvm.fadd` | 1 | `clean/fp_denorm.ll` |
-| **interpreter**: failed at `llvm.getelementptr` | 1 | `clean/gep-16-bit-addrspace.ll` |
 | **verifier**: `llvm.icmp: Expected operand 0 to have integer or pointer type` | 1 | `clean/icmp_ptr.ll` |
 | **verifier**: `llvm.intr.sadd.sat: Expected operand 0 to have integer type` | 1 | `clean/intr_arith_sat.ll` |
 | **verifier**: `llvm.intr.bitreverse: Expected operand 0 to have integer type` | 1 | `clean/intr_bit_manip.ll` |
@@ -80,7 +79,7 @@ results of `llubi`.
 | `clean/fp_denorm.ll` | returned `void` | **interpreter**: failed at `llvm.fadd` (line 6) | UNSUPPORTED |
 | `clean/fp_fastmath.ll` | returned `void` | **interpreter**: failed at `llvm.fdiv` (line 7) | UNSUPPORTED |
 | `clean/fp_phi_select.ll` | returned `void` | **interpreter**: failed at `llvm.fdiv` (line 7) | UNSUPPORTED |
-| `clean/gep-16-bit-addrspace.ll` | returned `void` | **interpreter**: failed at `llvm.getelementptr` (line 6) | UNSUPPORTED |
+| `clean/gep-16-bit-addrspace.ll` | returned `void` | returned `void` | PASS |
 | `clean/gep.ll` | returned `void` | **parser**: `vector element type expected` (line 46) | UNSUPPORTED |
 | `clean/global_constexpr_initializer.ll` | returned `void` | **parser**: `vector element type expected` (line 128) | UNSUPPORTED |
 | `clean/global_external.ll` | returned `void` | returned `void` | PASS |
@@ -172,7 +171,7 @@ results of `llubi`.
 
 | Component | Version | SHA-256 |
 |---|---|---|
-| veir-interpret | [`fccabefb512f`](https://github.com/opencompl/veir/commit/fccabefb512f02cd0c79ee4f97b1bd30c6af468d) | `95a55796d2f2a4b8bd917c34f36585d6b3f6c2f636a05a04a38645148b6ee1bc` |
+| veir-interpret | [`7fc0546b9a0a`](https://github.com/opencompl/veir/commit/7fc0546b9a0a5f66fa3a02cf7d8553f412e2cc04) | `8bb049d0ed87499878b5f8e9f2b7bd2caae0d045c1b1d41a5294df3502f4ba85` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
 | corpus.tar.gz |  | `c81112457ef97ba8597d761fe5b3bad8c3197b2ff4b2bdf8a9dc9d7cbf5ca5d7` |
