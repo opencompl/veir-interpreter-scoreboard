@@ -1,37 +1,38 @@
 #!/usr/bin/env python3
-"""Compare the veir-interpret and llubi outputs in the corpus and write SCOREBOARD.md."""
+"""Compare the veir-interpret, llubi and alive-exec outputs in the corpus and write SCOREBOARD.md.
+
+llubi and alive-exec are read with VeIR's `Tools/vsmith`, as VeIR's own
+`Tools/llubi-interpret` and `Tools/alive-interpret` do. It writes their results
+as veir-interpret prints its own, so all three compare as text.
+"""
 
 import argparse
 import json
 import re
 import subprocess
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
-from typing import Literal
+from types import ModuleType
 
 from capture import EXIT_STATUS, TIMEOUT
 from corpus_manifest import sha256
 
 VEIR_REPOSITORY = "https://github.com/opencompl/veir"
+UB = "Undefined behavior"
 
 # Outcomes
 
 
-type Kind = Literal["returned", "UB", "unsupported", "timeout"]
-
-
 @dataclass(frozen=True, slots=True)
 class Outcome:
-    kind: Kind
-    line: str | None  # The line of the output it was read from.
-    value: str | None = None
-    reason: str | None = None
-    operation: str | None = None  # The operation it stopped at.
-    mlir_line: str | None = None  # Where that operation is in the `.mlir` file.
+    result: str | None  # As veir-interpret prints it; None if the tool gave none.
+    detail: str  # What the tool printed about `result`, or why there is none.
+    timeout: bool = False
 
 
 def find(pattern: str, lines: Iterable[str]) -> re.Match[str] | None:
@@ -43,15 +44,73 @@ def exit_status(lines: list[str]) -> str:
     return lines[-1].removeprefix(EXIT_STATUS)
 
 
-def llubi_outcome(trace: str) -> Outcome:
-    lines = trace.splitlines()
-    if ub := find(r"Immediate UB detected: .*", lines):
-        return Outcome("UB", ub[0])
-    # `main` returns last, so its `ret` is the last one in the trace.
-    ret = find(r"\s*ret (.*?)\s*", reversed(lines))
-    if exit_status(lines) == "0" and ret:
-        return Outcome("returned", f"ret {ret[1]}", llubi_value(ret[1]))
-    raise ValueError("llubi neither returned from main nor reported UB")
+def crashed(trace: str) -> bool:
+    # As in `Tools/llubi-interpret` and `Tools/alive-interpret`.
+    status = exit_status(trace.splitlines())
+    return status.startswith("-") or status in ("134", "139") or "Stack dump:" in trace
+
+
+def load_vsmith(veir_dir: Path) -> ModuleType:
+    loader = SourceFileLoader("vsmith", str(veir_dir / "Tools" / "vsmith"))
+    spec = spec_from_loader("vsmith", loader)
+    assert spec is not None
+    # `dataclass` looks up the module of the class it decorates.
+    vsmith = sys.modules["vsmith"] = module_from_spec(spec)
+    loader.exec_module(vsmith)
+    return vsmith
+
+
+def classified(result: tuple[str, str]) -> Outcome:
+    output, value = result
+    return Outcome(output, code(value))
+
+
+def main_trace(trace: str) -> str:
+    """
+    llubi's trace without the calls that `main` returned from, so that their
+    `ret` cannot be mistaken for the one of `main`.
+
+    >>> main_trace("Entering function: main\\nEntering function: f\\n  ret i8 1\\n"
+    ...            "Exiting function: f\\n  ret i8 2\\nExiting function: main")
+    'Entering function: main\\n  ret i8 2\\nExiting function: main'
+    """
+    kept: list[str] = []
+    calls: list[int] = []
+    for line in trace.splitlines():
+        if line.startswith("Entering function:"):
+            calls.append(len(kept))
+        kept.append(line)
+        if line.startswith("Exiting function:") and len(calls) > 1:
+            del kept[calls.pop() :]
+    return "\n".join(kept)
+
+
+def llubi_outcome(trace: str, vsmith: ModuleType) -> Outcome:
+    if crashed(trace):
+        return Outcome(None, "crashed")
+    try:
+        return classified(vsmith.classify_llubi_output(main_trace(trace)))
+    except ValueError:
+        return Outcome(None, "no recognizable result")
+
+
+def alive_outcome(trace: str, vsmith: ModuleType) -> Outcome:
+    if exit_status(trace.splitlines()) == TIMEOUT:
+        return Outcome(None, "timeout", timeout=True)
+    # As in `Tools/alive-interpret`.
+    if "Severe Z3 error" in trace:
+        return Outcome(None, "failed: `Severe Z3 error`")
+    error = r"^(?:Internal )?ERROR: (?!program returned poison)(.*)$"
+    if rejected := re.search(error, trace, re.MULTILINE):
+        return Outcome(None, f"rejected: {code(rejected[1].strip())}")
+    if crashed(trace):
+        return Outcome(None, "crashed")
+    declared = re.search(r"^define (.+?) @main\(", trace, re.MULTILINE)
+    return_type = declared[1] if declared else None
+    try:
+        return classified(vsmith.classify_alive_exec_output(trace, return_type))
+    except ValueError:
+        return Outcome(None, "no recognizable result")
 
 
 # `<file>:<line>:<col>: error: <message>` (or `note:`), then the operation it is about.
@@ -62,24 +121,21 @@ def veir_outcome(trace: str) -> Outcome:
     lines = trace.splitlines()
     status = exit_status(lines)
     if status == TIMEOUT:
-        return Outcome("timeout", None)
-    if status == "0" and (output := find(r"Program output: (.*)", lines)):
-        return Outcome("returned", output[0], veir_value(output[1]))
+        return Outcome(None, "timeout", timeout=True)
+    if status == "0" and (output := find(r"Program output: .*", lines)):
+        return Outcome(output[0], code(output[0]))
     diagnostic = DIAGNOSTIC.search(trace)
-    mlir_line, operation = (
-        (diagnostic[1], diagnostic[3]) if diagnostic else (None, None)
-    )
-    if status == "0" and (ub := find(r"Undefined behavior", lines)):
-        return Outcome("UB", ub[0], operation=operation, mlir_line=mlir_line)
+    if status == "0" and find(UB, lines):
+        if diagnostic:
+            return Outcome(UB, f"UB at {code(diagnostic[3])} (line {diagnostic[1]})")
+        return Outcome(UB, code(UB))
     if verifier := find(r"Error verifying input program: (.*)", lines):
-        return Outcome(
-            "unsupported", verifier[0], reason=f"**verifier**: {code(verifier[1])}"
-        )
+        return Outcome(None, f"**verifier**: {code(verifier[1])}")
     if diagnostic:
-        line = diagnostic[0].splitlines()[0]
-        reason = diagnostic_reason(diagnostic[2], diagnostic[3])
-        return Outcome("unsupported", line, reason=reason, mlir_line=mlir_line)
-    return Outcome("unsupported", None, reason=f"crashed with exit status {status}")
+        return Outcome(None, diagnostic_reason(diagnostic[2], diagnostic[3]))
+    if error := find(r"(?:error|Error): (.*)", lines):
+        return Outcome(None, f"**interpreter**: {code(error[1])}")
+    return Outcome(None, f"crashed with exit status {status}")
 
 
 def diagnostic_reason(message: str, operation: str) -> str:
@@ -99,98 +155,49 @@ def operation_name(operation: str) -> str:
     return name[1] if name else operation
 
 
-# Values, written the same way for llubi and veir-interpret
+# Tests
 
 
-def integer(width: int, value: int) -> str:
-    """
-    >>> integer(8, 255), integer(8, -1), integer(8, 127)
-    ('i8 -1', 'i8 -1', 'i8 127')
-    """
-    bits = value % (1 << width)
-    return f"i{width} {bits - (1 << width) if bits >> (width - 1) else bits}"
-
-
-def llubi_value(ret: str) -> str:
-    """
-    >>> [llubi_value(ret) for ret in ["void", "i32 poison", "i32 -1", "ptr %p"]]
-    ['void', 'poison', 'i32 -1', 'ptr']
-    """
-    match ret.split():
-        case ["void"]:
-            return "void"
-        case [_, "poison"]:
-            return "poison"
-        case ["ptr", *_]:
-            return "ptr"
-        case [type, value] if type[0] == "i" and type[1:].isdigit():
-            return integer(int(type[1:]), int(value))
-        case _:
-            raise ValueError(f"cannot read the value llubi returned: {ret!r}")
-
-
-def veir_value(output: str) -> str:
-    """
-    >>> [veir_value(output) for output in ["#[]", "#[poison]", "#[0xffffffff#32]"]]
-    ['void', 'poison', 'i32 -1']
-    """
-    match output.removeprefix("#[").removesuffix("]").split(", "):
-        case [""]:
-            return "void"
-        case ["poison"]:
-            return "poison"
-        case [element] if bits := re.fullmatch(r"0x([0-9a-fA-F]+)#(\d+)", element):
-            return integer(int(bits[2]), int(bits[1], 16))
-        case _:
-            return output
-
-
-# Verdicts
-
-
-class Verdict(StrEnum):
-    PASS = "PASS"
-    MISMATCH = "MISMATCH"
-    UNSUPPORTED = "UNSUPPORTED"
-    TIMEOUT = "TIMEOUT"
-
-
-def verdict(llubi: Outcome, veir: Outcome) -> Verdict:
-    if veir.kind == "unsupported":
-        return Verdict.UNSUPPORTED
-    if veir.kind == "timeout":
-        return Verdict.TIMEOUT
-    # Pointers are never compared: their addresses depend on the allocator.
-    same_kind = llubi.kind == veir.kind
-    same_value = llubi.value in (veir.value, "ptr")
-    return Verdict.PASS if same_kind and same_value else Verdict.MISMATCH
+REFERENCES = ("llubi", "alive-exec")
 
 
 @dataclass(frozen=True, slots=True)
 class Test:
     name: str
-    llubi: Outcome
+    references: tuple[Outcome, Outcome]  # In the order of `REFERENCES`.
     veir: Outcome
 
     @property
-    def verdict(self) -> Verdict:
-        return verdict(self.llubi, self.veir)
+    def finished(self) -> bool:
+        """Whether veir-interpret ran the test to a result."""
+        return self.veir.result is not None
+
+    def agrees(self, reference: Outcome) -> bool | None:
+        """Whether both have the same result; None if one has none."""
+        if not self.finished or reference.result is None:
+            return None
+        return reference.result == self.veir.result
 
 
-def test(directory: Path, llubi_trace: Path) -> Test:
-    name = str(llubi_trace.relative_to(directory)).removesuffix(".llubi-output.txt")
-    veir_trace = directory / f"{name}.veir-output.txt"
-    try:
-        llubi = llubi_outcome(llubi_trace.read_text())
-    except ValueError as error:
-        raise ValueError(f"{llubi_trace}: {error}") from error
-    return Test(name, llubi, veir_outcome(veir_trace.read_text()))
+def test(directory: Path, name: str, vsmith: ModuleType) -> Test:
+    def trace(tool: str) -> str:
+        return (directory / f"{name}.{tool}-output.txt").read_text()
+
+    return Test(
+        name,
+        (
+            llubi_outcome(trace("llubi"), vsmith),
+            alive_outcome(trace("alive-exec"), vsmith),
+        ),
+        veir_outcome(trace("veir")),
+    )
 
 
-def tests(corpus: Path) -> list[Test]:
+def tests(corpus: Path, vsmith: ModuleType) -> list[Test]:
     directory = corpus / "llubi-tests"
     return [
-        test(directory, path) for path in sorted(directory.rglob("*.llubi-output.txt"))
+        test(directory, str(path.relative_to(directory)).removesuffix(".mlir"), vsmith)
+        for path in sorted(directory.rglob("*.mlir"))
     ]
 
 
@@ -206,97 +213,136 @@ def file_name(test: Test) -> str:
 
 
 def describe(outcome: Outcome) -> str:
-    if outcome.kind == "returned":
-        return f"returned `{outcome.value}`"
-    where = f" (line {outcome.mlir_line})" if outcome.mlir_line else ""
-    if outcome.kind == "unsupported":
-        return (outcome.reason or outcome.kind) + where
-    if outcome.operation is not None:
-        return f"UB at {code(outcome.operation)}{where}"
-    if outcome.line is not None:
-        return code(outcome.line)
-    return outcome.kind
+    if outcome.result in (None, UB):
+        return outcome.detail
+    return code(outcome.result)
 
 
-def results_table(tests: list[Test]) -> list[str]:
+def judge(test: Test, reference: Outcome) -> str:
+    """The reference's result, marked with whether veir-interpret agrees."""
+    mark = {True: "✅ ", False: "❌ ", None: ""}[test.agrees(reference)]
+    return mark + describe(reference)
+
+
+def headline(tests: list[Test]) -> str:
+    finished = [t for t in tests if t.finished]
+    parts = [f"**{len(finished)}/{len(tests)}** tests run to a result"]
+    for i, name in enumerate(REFERENCES):
+        answered = [t for t in finished if t.agrees(t.references[i]) is not None]
+        agreeing = [t for t in answered if t.agrees(t.references[i])]
+        part = f"**{len(agreeing)}/{len(answered)}** of those agree with `{name}`"
+        if missing := len(finished) - len(answered):
+            part += f" ({missing} where `{name}` has no result)"
+        parts.append(part)
+    if timeouts := sum(t.veir.timeout for t in tests):
+        parts.append(f"**{timeouts}** time out")
+    return " · ".join(parts)
+
+
+def row(cells: Iterable[str]) -> str:
+    return f"| {' | '.join(cells)} |"
+
+
+def tests_table(tests: list[Test]) -> list[str]:
     return [
-        "| Test | llubi | veir-interpret | Verdict |",
-        "|---|---|---|---|",
+        row(["Test", "veir-interpret", *REFERENCES]),
+        row(["--"] * (2 + len(REFERENCES))),
         *(
-            f"| {file_name(t)} | {describe(t.llubi)} | {describe(t.veir)} | {t.verdict} |"
+            row([file_name(t), describe(t.veir), *(judge(t, r) for r in t.references)])
             for t in tests
         ),
     ]
 
 
-def unsupported_table(tests: list[Test]) -> list[str]:
-    by_reason: defaultdict[str, list[str]] = defaultdict(list)
+def stop_reasons(tests: list[Test]) -> list[tuple[str, list[Test]]]:
+    """Why veir-interpret gave no result, most common first."""
+    by_reason: defaultdict[str, list[Test]] = defaultdict(list)
     for t in tests:
-        if t.verdict is Verdict.UNSUPPORTED:
-            by_reason[t.veir.reason or "unknown"].append(file_name(t))
-    ranked = sorted(by_reason.items(), key=lambda item: -len(item[1]))
+        if not t.finished and not t.veir.timeout:
+            by_reason[t.veir.detail].append(t)
+    return sorted(by_reason.items(), key=lambda item: -len(item[1]))
+
+
+def fix_next_table(
+    reasons: list[tuple[str, list[Test]]], total: int, count: int = 5
+) -> list[str]:
     return [
-        "| Reason | Count | Tests |",
-        "|---|---:|---|",
+        "| # | Reason | Tests affected |",
+        "| -: | -- | -: |",
         *(
-            f"| {reason} | {len(names)} | {', '.join(names)} |"
-            for reason, names in ranked
+            f"| {rank} | {reason} | {len(stopped)}/{total} |"
+            for rank, (reason, stopped) in enumerate(reasons[:count], start=1)
         ),
     ]
 
 
-def verdict_table(counts: Counter[Verdict]) -> list[str]:
-    total = counts.total()
+def reasons_table(reasons: list[tuple[str, list[Test]]]) -> list[str]:
     return [
-        "| Verdict | Tests |",
-        "|---|---:|",
-        *(f"| {v} | {counts[v]} ({100 * counts[v] / total:.1f}%) |" for v in Verdict),
+        "| Reason | Tests |",
+        "| -- | -- |",
+        *(
+            f"| {reason} | {', '.join(map(file_name, stopped))} |"
+            for reason, stopped in reasons
+        ),
     ]
 
 
 def manifest_table(manifest: list[tuple[str, str, str]]) -> list[str]:
     return [
         "| Component | Version | SHA-256 |",
-        "|---|---|---|",
+        "| -- | -- | -- |",
         *(f"| {name} | {version} | `{digest}` |" for name, version, digest in manifest),
     ]
 
 
 def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
-    counts = Counter(t.verdict for t in tests)
-    mismatches = [t for t in tests if t.verdict is Verdict.MISMATCH]
+    mismatches = [t for t in tests if False in map(t.agrees, t.references)]
+    reasons = stop_reasons(tests)
     lines = [
         "# Veir-Interpreter Scoreboard",
         "",
-        f"We run `veir-interpret` on the {len(tests)} tests in `llubi-tests` and compare with the",
-        "results of `llubi`.",
+        "We run `veir-interpret` on the tests in `llubi-tests` and compare its results with",
+        "`llubi` and Alive2's `alive-exec`, read the way VeIR's `Tools/llubi-interpret` and",
+        "`Tools/alive-interpret` read them. See [README.md](README.md).",
         "",
-        *verdict_table(counts),
+        headline(tests),
     ]
     if mismatches:
         lines += [
             "",
             "## Mismatches",
             "",
-            "`veir-interpret` fully executed these tests, but has a different result than `llubi`!",
+            "`veir-interpret` ran these tests to a different result than `llubi` or `alive-exec`.",
             "",
-            *results_table(mismatches),
+            *tests_table(mismatches),
         ]
-    if counts[Verdict.UNSUPPORTED]:
+    if reasons:
         lines += [
             "",
-            "## Unsupported",
+            "## Fix next",
             "",
-            *unsupported_table(tests),
+            "Why `veir-interpret` gives no result, for the most tests. The collapsed table below",
+            "lists every reason, with its tests.",
+            "",
+            *fix_next_table(reasons, len(tests)),
+            "",
+            "<details>",
+            f"<summary>All reasons ({len(reasons)}), with their tests</summary>",
+            "",
+            *reasons_table(reasons),
+            "",
+            "</details>",
         ]
     lines += [
         "",
-        "## All tests",
+        "## Tests",
+        "",
+        "✅ and ❌ mark whether `veir-interpret` has the same result as `llubi` and `alive-exec`.",
         "",
         "<details>",
-        "<summary>Show all tests</summary>",
+        f"<summary>All {len(tests)} tests, those with a result first</summary>",
         "",
-        *results_table(tests),
+        *tests_table(sorted(tests, key=lambda t: not t.finished)),
         "",
         "</details>",
         "",
@@ -341,7 +387,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         text = render(
-            tests(args.corpus),
+            tests(args.corpus, load_vsmith(args.veir_dir)),
             read_manifest(args.veir_dir, args.veir_interpret, args.manifest),
         )
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

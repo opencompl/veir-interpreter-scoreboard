@@ -1,7 +1,11 @@
 {
-  "archive_sha256": "c81112457ef97ba8597d761fe5b3bad8c3197b2ff4b2bdf8a9dc9d7cbf5ca5d7",
+  "archive_sha256": "9c27c23fe92d74578bd24f656e76dce8643f6bc90f762be31d2b25d21004a2f1",
   "schema_version": 2,
   "toolchain": {
+    "alive-exec": {
+      "sha256": "f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1",
+      "version": "version v21.0-118-gd1533abb-dirty"
+    },
     "llubi": {
       "sha256": "1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2",
       "version": "LLVM version 23.1.0-rc1"

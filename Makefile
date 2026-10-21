@@ -7,6 +7,8 @@ VEIR_TIMEOUT_SECONDS ?= 30
 
 MLIR_TRANSLATE ?= mlir-translate
 LLUBI ?= llubi
+ALIVE_EXEC ?= alive-exec
+ALIVE_TIMEOUT_SECONDS ?= 600
 LAKE ?= lake
 UV ?= uv
 TAR ?= tar
@@ -22,10 +24,11 @@ TESTS := $(sort $(wildcard $(TEST_DIR)/*/*.ll))
 NAMES := $(TESTS:.ll=)
 MLIR := $(addprefix $(CORPUS)/,$(addsuffix .mlir,$(NAMES)))
 LLUBI_TRACES := $(addprefix $(CORPUS)/,$(addsuffix .llubi-output.txt,$(NAMES)))
+ALIVE_TRACES := $(addprefix $(CORPUS)/,$(addsuffix .alive-exec-output.txt,$(NAMES)))
 VEIR_TRACES := $(addprefix $(CORPUS)/,$(addsuffix .veir-output.txt,$(NAMES)))
 
 ARCHIVE := corpus.tar.gz
-ARCHIVE_CONTENTS := $(patsubst $(CORPUS)/%,%,$(MLIR) $(LLUBI_TRACES))
+ARCHIVE_CONTENTS := $(patsubst $(CORPUS)/%,%,$(MLIR) $(LLUBI_TRACES) $(ALIVE_TRACES))
 MANIFEST := manifest.json
 UNPACKED := $(CORPUS)/.unpacked
 SCOREBOARD := SCOREBOARD.md
@@ -52,7 +55,7 @@ VEIR_INTERPRET := $(VEIR_DIR)/.lake/build/bin/veir-interpret
 # Public Targets
 ################################################################################
 
-refresh-corpus: $(MLIR) $(LLUBI_TRACES) scripts/corpus_manifest.py
+refresh-corpus: $(MLIR) $(LLUBI_TRACES) $(ALIVE_TRACES) scripts/corpus_manifest.py
 	$(TAR) --create --gzip \
 		--file=$(ARCHIVE) \
 		--directory=$(CORPUS) \
@@ -61,7 +64,8 @@ refresh-corpus: $(MLIR) $(LLUBI_TRACES) scripts/corpus_manifest.py
 		--archive $(ARCHIVE) \
 		--manifest $(MANIFEST) \
 		--tool mlir-translate=$(MLIR_TRANSLATE) \
-		--tool llubi=$(LLUBI)
+		--tool llubi=$(LLUBI) \
+		--tool alive-exec=$(ALIVE_EXEC)
 
 check-corpus: scripts/corpus_manifest.py
 	$(UV) run scripts/corpus_manifest.py check \
@@ -94,6 +98,15 @@ $(CORPUS)/%.llubi-output.txt: %.ll scripts/capture.py
 	$(UV) run scripts/capture.py \
 		--output $@ \
 		-- $(LLUBI) --verbose $<
+
+# alive-exec execution
+
+$(CORPUS)/%.alive-exec-output.txt: %.ll scripts/capture.py
+	@mkdir -p $(@D)
+	$(UV) run scripts/capture.py \
+		--output $@ \
+		--timeout-seconds $(ALIVE_TIMEOUT_SECONDS) \
+		-- $(ALIVE_EXEC) --smt-to=300000 --func=main $<
 
 # Corpus Archive
 

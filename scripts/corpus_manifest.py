@@ -18,10 +18,15 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(file, "sha256").hexdigest()
 
 
-def version(command: str) -> str:
-    """The first line of `command --version` that mentions a version."""
+# alive-exec names its Alive2 commit in `--help`; its `--version` is LLVM's.
+VERSION_FLAGS = {"alive-exec": "--help"}
+
+
+def version(name: str, command: str) -> str:
+    """The first line of `command --version` (see `VERSION_FLAGS`) that mentions a version."""
+    flag = VERSION_FLAGS.get(name, "--version")
     result = subprocess.run(
-        [command, "--version"], capture_output=True, text=True, check=False
+        [command, flag], capture_output=True, text=True, check=False
     )
     for line in result.stdout.splitlines():
         if "version" in line.lower():
@@ -42,7 +47,10 @@ def manifest(archive: Path, tools: dict[str, str]) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "archive_sha256": sha256(archive),
         "toolchain": {
-            name: {"version": version(command), "sha256": sha256(executable(command))}
+            name: {
+                "version": version(name, command),
+                "sha256": sha256(executable(command)),
+            }
             for name, command in tools.items()
         },
     }
