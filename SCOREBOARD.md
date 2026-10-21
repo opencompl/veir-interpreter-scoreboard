@@ -16,6 +16,12 @@ Agreement counts the tests that have both results. A test that only returns `voi
 agrees trivially (⚪): llubi's own tests check the values in between, which
 `veir-interpret` does not print.
 
+## Since the previous run
+
+Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/0bc1d9f27583ec2c75512ede94ac0c56b255c488/SCOREBOARD.md) (`0bc1d9f27583`, VeIR `1d28db9d434d`).
+
+Nothing changed.
+
 ## Mismatches
 
 `veir-interpret` ran these tests to a different result than `llubi` or `alive-exec`.
@@ -212,7 +218,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 
 | Component | Version | SHA-256 |
 | -- | -- | -- |
-| veir-interpret | [`1d28db9d434d`](https://github.com/opencompl/veir/commit/1d28db9d434d8bec78a006eafbaa86ec5db0cf23) | `8bb049d0ed87499878b5f8e9f2b7bd2caae0d045c1b1d41a5294df3502f4ba85` |
+| veir-interpret | [`a6e839c461d4`](https://github.com/opencompl/veir/commit/a6e839c461d473cb043678b9cf7c944367a4b290) | `8bb049d0ed87499878b5f8e9f2b7bd2caae0d045c1b1d41a5294df3502f4ba85` |
 | alive-exec | version v21.0-118-gd1533abb-dirty | `f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
