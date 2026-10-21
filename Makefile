@@ -32,6 +32,7 @@ ARCHIVE_CONTENTS := $(patsubst $(CORPUS)/%,%,$(MLIR) $(LLUBI_TRACES) $(ALIVE_TRA
 MANIFEST := manifest.json
 UNPACKED := $(CORPUS)/.unpacked
 SCOREBOARD := SCOREBOARD.md
+RESULTS := results.json
 
 VEIR_INTERPRET := $(VEIR_DIR)/.lake/build/bin/veir-interpret
 
@@ -140,6 +141,7 @@ $(SCOREBOARD): $(VEIR_TRACES) scripts/scoreboard.py scripts/capture.py scripts/c
 		--veir-dir $(VEIR_DIR) \
 		--veir-interpret $(VEIR_INTERPRET) \
 		--manifest $(MANIFEST) \
-		--output $@
+		--output $@ \
+		--results $(RESULTS)
 
 FORCE:

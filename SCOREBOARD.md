@@ -4,7 +4,17 @@ We run `veir-interpret` on the tests in `llubi-tests` and compare its results wi
 `llubi` and Alive2's `alive-exec`, read the way VeIR's `Tools/llubi-interpret` and
 `Tools/alive-interpret` read them. See [README.md](README.md).
 
-**20/102** tests run to a result · **15/20** of those agree with `llubi` · **8/13** of those agree with `alive-exec` (7 where `alive-exec` has no result)
+**20/102** tests run to a result · **15/20** agree with `llubi` (3 only on `void`) · **8/13** agree with `alive-exec`
+
+| Tests | Run to a result | Agree with `llubi` | Agree with `alive-exec` |
+| -- | -: | -: | -: |
+| `clean/`, which return normally | 4/50 | 4/4, 3 only on `void` | 1/1 |
+| `ub/`, which trigger UB | 16/52 | 11/16 | 7/12 |
+| All | 20/102 | 15/20, 3 only on `void` | 8/13 |
+
+Agreement counts the tests that have both results. A test that only returns `void`
+agrees trivially (⚪): llubi's own tests check the values in between, which
+`veir-interpret` does not print.
 
 ## Mismatches
 
@@ -12,173 +22,189 @@ We run `veir-interpret` on the tests in `llubi-tests` and compare its results wi
 
 | Test | veir-interpret | llubi | alive-exec |
 | -- | -- | -- | -- |
-| `ub/global_constant_store.ll` | `Program output: #[]` | ❌ `Immediate UB detected: Try to write to a constant memory object: ptr 0x8 [@constant].` | ❌ `UB triggered` |
-| `ub/inttoptr_gep.ll` | `Program output: #[]` | ❌ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ❌ `UB triggered` |
-| `ub/load_noundef_ub_poison.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value loaded contains undefined bits.` | ❌ `UB triggered` |
-| `ub/load_noundef_ub_undef.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value loaded contains undefined bits.` | ❌ `UB triggered` |
-| `ub/metadata_noundef_ub.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value poison violates !noundef metadata.` | ❌ `UB triggered` |
+| [`ub/global_constant_store.ll`](llubi-tests/ub/global_constant_store.ll) | returned `void` | ❌ UB at [line 6](llubi-tests/ub/global_constant_store.ll#L6): Try to write to a constant memory object: ptr 0x8 [@constant]. | ❌ UB at `store` |
+| [`ub/inttoptr_gep.ll`](llubi-tests/ub/inttoptr_gep.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_gep.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep_oob` |
+| [`ub/load_noundef_ub_poison.ll`](llubi-tests/ub/load_noundef_ub_poison.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_poison.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
+| [`ub/load_noundef_ub_undef.ll`](llubi-tests/ub/load_noundef_ub_undef.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_undef.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
+| [`ub/metadata_noundef_ub.ll`](llubi-tests/ub/metadata_noundef_ub.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/metadata_noundef_ub.ll#L7): The value poison violates !noundef metadata. | ❌ UB at `assume` |
 
 ## Fix next
 
-Why `veir-interpret` gives no result, for the most tests. The collapsed table below
-lists every reason, with its tests.
+The operations `veir-interpret` stops at in the most tests, and why: their types,
+or what the verifier or parser says. The collapsed table below lists all of them.
 
-| # | Reason | Tests affected |
-| -: | -- | -: |
-| 1 | **interpreter**: failed at `llvm.call` | 20/102 |
-| 2 | **interpreter**: failed at `llvm.intr.assume` | 10/102 |
-| 3 | **interpreter**: failed at `llvm.mlir.constant` | 7/102 |
-| 4 | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | 6/102 |
-| 5 | **interpreter**: failed at `llvm.mlir.poison` | 4/102 |
+| # | Operation | Tests affected | Why |
+| -: | -- | -: | -- |
+| 1 | `llvm.call` | 20/102 | `(!llvm.ptr) -> ()` ×16, `() -> i32`, `() -> i16`, … |
+| 2 | `llvm.intr.assume` | 10/102 | `(i1, !llvm.ptr, i32) -> ()` ×3, `(i1, !llvm.ptr) -> ()` ×2, `(i1) -> ()` ×2, … |
+| 3 | `llvm.mlir.constant` | 7/102 | `() -> vector<2xi32>` ×2, `() -> vector<4xi32>` ×2, `() -> vector<4xi1>`, … |
+| 4 | `llvm.fadd` | 7/102 | verifier says `Expected operand 0 to have floating point type` ×6, `(f32, f32) -> f32` |
+| 5 | **parser** | 6/102 | `Expected punctuation '}'` at `!llvm.ptr<1>` ×3, `vector element type expected` at `vector<[4]xi32>` ×2, `vector element type expected` at `vector<[2]x!llvm.ptr>` |
 
 <details>
-<summary>All reasons (29), with their tests</summary>
+<summary>All operations `veir-interpret` stops at (26), with their tests</summary>
 
-| Reason | Tests |
-| -- | -- |
-| **interpreter**: failed at `llvm.call` | `clean/alloca.ll`, `clean/byval.ll`, `clean/reset_return_value_slot.ll`, `ub/attribute_dereferenceable_ub_nullary_provenance.ll`, `ub/attribute_dereferenceable_ub_oob1.ll`, `ub/attribute_dereferenceable_ub_oob2.ll`, `ub/attribute_dereferenceable_ub_oob3.ll`, `ub/attribute_dereferenceable_ub_poison.ll`, `ub/attribute_noundef_ub.ll`, `ub/byval_lifetime.ll`, `ub/byval_misalign.ll`, `ub/byval_misalign_callsite.ll`, `ub/byval_mismatch1.ll`, `ub/byval_mismatch2.ll`, `ub/byval_mismatch3.ll`, `ub/byval_null.ll`, `ub/byval_oversize.ll`, `ub/byval_poison.ll`, `ub/call_mismatched_signature.ll`, `ub/call_poison.ll` |
-| **interpreter**: failed at `llvm.intr.assume` | `clean/assume_operand_bundles.ll`, `ub/assume_false.ll`, `ub/assume_invalid_align.ll`, `ub/assume_misalign.ll`, `ub/assume_non_pow2_align_offset.ll`, `ub/assume_nondereferenceable.ll`, `ub/assume_null.ll`, `ub/assume_poison.ll`, `ub/assume_poison_align.ll`, `ub/assume_pow2_align_offset.ll` |
-| **interpreter**: failed at `llvm.mlir.constant` | `clean/bitcast_be.ll`, `clean/bitcast_le.ll`, `clean/intr_experimental_vector.ll`, `clean/intr_vector_manip.ll`, `clean/intr_vector_reduce.ll`, `clean/loadstore_overaligned.ll`, `clean/metadata.ll` |
-| **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `clean/fp_arith_bfloat.ll`, `clean/fp_arith_double.ll`, `clean/fp_arith_float.ll`, `clean/fp_arith_fp128.ll`, `clean/fp_arith_fp80.ll`, `clean/fp_arith_half.ll` |
-| **interpreter**: failed at `llvm.mlir.poison` | `clean/intr_fp_fptoi_sat.ll`, `clean/intr_fp_is_fpclass.ll`, `clean/intr_fp_minmax.ll`, `clean/struct.ll` |
-| **parser**: `vector element type expected` | `clean/gep.ll`, `clean/global_constexpr_initializer.ll`, `clean/vector.ll` |
-| **verifier**: `llvm.add: Expected operand 0 to have integer type` | `clean/int_arith.ll`, `clean/inttoptr_ptrtoint_constantexpr.ll`, `clean/undef.ll` |
-| **interpreter**: failed at `llvm.mlir.undef` | `clean/intr_arith_overflow.ll`, `ub/attribute_noundef_agg_ub.ll`, `ub/load_noundef_ub_poison_padding.ll` |
-| **parser**: `Expected punctuation '}'` | `clean/ptrtoaddr.ll`, `ub/assume_misalign_all_ones.ll`, `ub/assume_null_all_ones.ll` |
-| **interpreter**: failed at `llvm.fdiv` | `clean/fp_fastmath.ll`, `clean/fp_phi_select.ll` |
-| **interpreter**: failed at `llvm.ptrtoaddr` | `clean/ptrtoaddr_after_ptrtoint.ll`, `ub/ptrtoaddr_no_expose.ll` |
-| **interpreter**: failed at `llvm.intr.lifetime.start` | `ub/store_dead.ll`, `ub/store_dead_gep.ll` |
-| **interpreter**: `unsupported value of global @g` | `clean/byval_padding.ll` |
-| **verifier**: `llvm.sitofp: Expected operand 0 to have integer type` | `clean/fp_cast.ll` |
-| **interpreter**: failed at `llvm.fcmp` | `clean/fp_cmp.ll` |
-| **interpreter**: failed at `llvm.fadd` | `clean/fp_denorm.ll` |
-| **verifier**: `llvm.icmp: Expected operand 0 to have integer or pointer type` | `clean/icmp_ptr.ll` |
-| **verifier**: `llvm.intr.sadd.sat: Expected operand 0 to have integer type` | `clean/intr_arith_sat.ll` |
-| **verifier**: `llvm.intr.bitreverse: Expected operand 0 to have integer type` | `clean/intr_bit_manip.ll` |
-| **verifier**: `llvm.intr.fmuladd: Expected operand 0 to have floating point type` | `clean/intr_fp_fma.ll` |
-| **verifier**: `llvm.intr.fabs: Expected operand 0 to have floating point type` | `clean/intr_fp_unary.ll` |
-| **verifier**: `llvm.intr.abs: Expected operand 0 to have integer type` | `clean/intr_int_arith.ll` |
-| **interpreter**: failed at `llvm.intr.memset.inline` | `clean/intr_memory.ll` |
-| **interpreter**: failed at `llvm.intr.ssa.copy` | `clean/intr_passthrough.ll` |
-| **interpreter**: failed at `llvm.intr.vscale` | `clean/intr_vscale.ll` |
-| **interpreter**: failed at `llvm.inttoptr` | `clean/inttoptr.ll` |
-| **interpreter**: failed at `llvm.alloca` | `ub/alloca_poison_count.ll` |
-| **verifier**: `llvm.func: Expected the last operation of a block to be a terminator` | `ub/indirectbr_poison.ll` |
-| **interpreter**: `unsupported value of global @constant_dst` | `ub/intr_memory_constant_ub.ll` |
+| Operation | Why | Tests |
+| -- | -- | -- |
+| `llvm.call` | `(!llvm.ptr) -> ()` | [`clean/byval.ll`](llubi-tests/clean/byval.ll), [`ub/attribute_dereferenceable_ub_nullary_provenance.ll`](llubi-tests/ub/attribute_dereferenceable_ub_nullary_provenance.ll), [`ub/attribute_dereferenceable_ub_oob1.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob1.ll), [`ub/attribute_dereferenceable_ub_oob2.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob2.ll), [`ub/attribute_dereferenceable_ub_oob3.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob3.ll), [`ub/attribute_dereferenceable_ub_poison.ll`](llubi-tests/ub/attribute_dereferenceable_ub_poison.ll), [`ub/byval_misalign.ll`](llubi-tests/ub/byval_misalign.ll), [`ub/byval_misalign_callsite.ll`](llubi-tests/ub/byval_misalign_callsite.ll), [`ub/byval_mismatch1.ll`](llubi-tests/ub/byval_mismatch1.ll), [`ub/byval_mismatch2.ll`](llubi-tests/ub/byval_mismatch2.ll), [`ub/byval_mismatch3.ll`](llubi-tests/ub/byval_mismatch3.ll), [`ub/byval_null.ll`](llubi-tests/ub/byval_null.ll), [`ub/byval_oversize.ll`](llubi-tests/ub/byval_oversize.ll), [`ub/byval_poison.ll`](llubi-tests/ub/byval_poison.ll), [`ub/call_mismatched_signature.ll`](llubi-tests/ub/call_mismatched_signature.ll), [`ub/call_poison.ll`](llubi-tests/ub/call_poison.ll) |
+| `llvm.call` | `() -> i32` | [`clean/alloca.ll`](llubi-tests/clean/alloca.ll) |
+| `llvm.call` | `() -> i16` | [`clean/reset_return_value_slot.ll`](llubi-tests/clean/reset_return_value_slot.ll) |
+| `llvm.call` | `(i32) -> ()` | [`ub/attribute_noundef_ub.ll`](llubi-tests/ub/attribute_noundef_ub.ll) |
+| `llvm.call` | `(!llvm.ptr) -> !llvm.ptr` | [`ub/byval_lifetime.ll`](llubi-tests/ub/byval_lifetime.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr, i32) -> ()` | [`ub/assume_misalign.ll`](llubi-tests/ub/assume_misalign.ll), [`ub/assume_nondereferenceable.ll`](llubi-tests/ub/assume_nondereferenceable.ll), [`ub/assume_poison_align.ll`](llubi-tests/ub/assume_poison_align.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr) -> ()` | [`clean/assume_operand_bundles.ll`](llubi-tests/clean/assume_operand_bundles.ll), [`ub/assume_null.ll`](llubi-tests/ub/assume_null.ll) |
+| `llvm.intr.assume` | `(i1) -> ()` | [`ub/assume_false.ll`](llubi-tests/ub/assume_false.ll), [`ub/assume_poison.ll`](llubi-tests/ub/assume_poison.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr, i32, i32) -> ()` | [`ub/assume_non_pow2_align_offset.ll`](llubi-tests/ub/assume_non_pow2_align_offset.ll), [`ub/assume_pow2_align_offset.ll`](llubi-tests/ub/assume_pow2_align_offset.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr, i64) -> ()` | [`ub/assume_invalid_align.ll`](llubi-tests/ub/assume_invalid_align.ll) |
+| `llvm.mlir.constant` | `() -> vector<2xi32>` | [`clean/bitcast_be.ll`](llubi-tests/clean/bitcast_be.ll), [`clean/bitcast_le.ll`](llubi-tests/clean/bitcast_le.ll) |
+| `llvm.mlir.constant` | `() -> vector<4xi32>` | [`clean/intr_vector_reduce.ll`](llubi-tests/clean/intr_vector_reduce.ll), [`clean/loadstore_overaligned.ll`](llubi-tests/clean/loadstore_overaligned.ll) |
+| `llvm.mlir.constant` | `() -> vector<4xi1>` | [`clean/intr_experimental_vector.ll`](llubi-tests/clean/intr_experimental_vector.ll) |
+| `llvm.mlir.constant` | `() -> vector<6xi32>` | [`clean/intr_vector_manip.ll`](llubi-tests/clean/intr_vector_manip.ll) |
+| `llvm.mlir.constant` | `() -> vector<8xi32>` | [`clean/metadata.ll`](llubi-tests/clean/metadata.ll) |
+| `llvm.fadd` | verifier says `Expected operand 0 to have floating point type` | [`clean/fp_arith_bfloat.ll`](llubi-tests/clean/fp_arith_bfloat.ll), [`clean/fp_arith_double.ll`](llubi-tests/clean/fp_arith_double.ll), [`clean/fp_arith_float.ll`](llubi-tests/clean/fp_arith_float.ll), [`clean/fp_arith_fp128.ll`](llubi-tests/clean/fp_arith_fp128.ll), [`clean/fp_arith_fp80.ll`](llubi-tests/clean/fp_arith_fp80.ll), [`clean/fp_arith_half.ll`](llubi-tests/clean/fp_arith_half.ll) |
+| `llvm.fadd` | `(f32, f32) -> f32` | [`clean/fp_denorm.ll`](llubi-tests/clean/fp_denorm.ll) |
+| **parser** | `Expected punctuation '}'` at `!llvm.ptr<1>` | [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll), [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll), [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) |
+| **parser** | `vector element type expected` at `vector<[4]xi32>` | [`clean/gep.ll`](llubi-tests/clean/gep.ll), [`clean/vector.ll`](llubi-tests/clean/vector.ll) |
+| **parser** | `vector element type expected` at `vector<[2]x!llvm.ptr>` | [`clean/global_constexpr_initializer.ll`](llubi-tests/clean/global_constexpr_initializer.ll) |
+| `llvm.mlir.poison` | `() -> f32` | [`clean/intr_fp_fptoi_sat.ll`](llubi-tests/clean/intr_fp_fptoi_sat.ll), [`clean/intr_fp_is_fpclass.ll`](llubi-tests/clean/intr_fp_is_fpclass.ll), [`clean/intr_fp_minmax.ll`](llubi-tests/clean/intr_fp_minmax.ll) |
+| `llvm.mlir.poison` | `() -> !llvm.struct<(i32, i32)>` | [`clean/struct.ll`](llubi-tests/clean/struct.ll) |
+| `llvm.add` | verifier says `Expected operand 0 to have integer type` | [`clean/int_arith.ll`](llubi-tests/clean/int_arith.ll), [`clean/inttoptr_ptrtoint_constantexpr.ll`](llubi-tests/clean/inttoptr_ptrtoint_constantexpr.ll), [`clean/undef.ll`](llubi-tests/clean/undef.ll) |
+| `llvm.mlir.undef` | `() -> vector<2xi32>` | [`clean/intr_arith_overflow.ll`](llubi-tests/clean/intr_arith_overflow.ll) |
+| `llvm.mlir.undef` | `() -> !llvm.struct<(i32, i32)>` | [`ub/attribute_noundef_agg_ub.ll`](llubi-tests/ub/attribute_noundef_agg_ub.ll) |
+| `llvm.mlir.undef` | `() -> vector<2xi4>` | [`ub/load_noundef_ub_poison_padding.ll`](llubi-tests/ub/load_noundef_ub_poison_padding.ll) |
+| **other** | `unsupported value of global @g` | [`clean/byval_padding.ll`](llubi-tests/clean/byval_padding.ll) |
+| **other** | `unsupported value of global @constant_dst` | [`ub/intr_memory_constant_ub.ll`](llubi-tests/ub/intr_memory_constant_ub.ll) |
+| `llvm.fdiv` | `(f32, f32) -> f32` | [`clean/fp_fastmath.ll`](llubi-tests/clean/fp_fastmath.ll), [`clean/fp_phi_select.ll`](llubi-tests/clean/fp_phi_select.ll) |
+| `llvm.ptrtoaddr` | `(!llvm.ptr) -> i64` | [`clean/ptrtoaddr_after_ptrtoint.ll`](llubi-tests/clean/ptrtoaddr_after_ptrtoint.ll), [`ub/ptrtoaddr_no_expose.ll`](llubi-tests/ub/ptrtoaddr_no_expose.ll) |
+| `llvm.intr.lifetime.start` | `(!llvm.ptr) -> ()` | [`ub/store_dead.ll`](llubi-tests/ub/store_dead.ll), [`ub/store_dead_gep.ll`](llubi-tests/ub/store_dead_gep.ll) |
+| `llvm.sitofp` | verifier says `Expected operand 0 to have integer type` | [`clean/fp_cast.ll`](llubi-tests/clean/fp_cast.ll) |
+| `llvm.fcmp` | `(f32, f32) -> i1` | [`clean/fp_cmp.ll`](llubi-tests/clean/fp_cmp.ll) |
+| `llvm.icmp` | verifier says `Expected operand 0 to have integer or pointer type` | [`clean/icmp_ptr.ll`](llubi-tests/clean/icmp_ptr.ll) |
+| `llvm.intr.sadd.sat` | verifier says `Expected operand 0 to have integer type` | [`clean/intr_arith_sat.ll`](llubi-tests/clean/intr_arith_sat.ll) |
+| `llvm.intr.bitreverse` | verifier says `Expected operand 0 to have integer type` | [`clean/intr_bit_manip.ll`](llubi-tests/clean/intr_bit_manip.ll) |
+| `llvm.intr.fmuladd` | verifier says `Expected operand 0 to have floating point type` | [`clean/intr_fp_fma.ll`](llubi-tests/clean/intr_fp_fma.ll) |
+| `llvm.intr.fabs` | verifier says `Expected operand 0 to have floating point type` | [`clean/intr_fp_unary.ll`](llubi-tests/clean/intr_fp_unary.ll) |
+| `llvm.intr.abs` | verifier says `Expected operand 0 to have integer type` | [`clean/intr_int_arith.ll`](llubi-tests/clean/intr_int_arith.ll) |
+| `llvm.intr.memset.inline` | `(!llvm.ptr, i8) -> ()` | [`clean/intr_memory.ll`](llubi-tests/clean/intr_memory.ll) |
+| `llvm.intr.ssa.copy` | `(i32) -> i32` | [`clean/intr_passthrough.ll`](llubi-tests/clean/intr_passthrough.ll) |
+| `llvm.intr.vscale` | `() -> i32` | [`clean/intr_vscale.ll`](llubi-tests/clean/intr_vscale.ll) |
+| `llvm.inttoptr` | `(i8) -> !llvm.ptr` | [`clean/inttoptr.ll`](llubi-tests/clean/inttoptr.ll) |
+| `llvm.alloca` | `(i32) -> !llvm.ptr` | [`ub/alloca_poison_count.ll`](llubi-tests/ub/alloca_poison_count.ll) |
+| `llvm.func` | verifier says `Expected the last operation of a block to be a terminator` | [`ub/indirectbr_poison.ll`](llubi-tests/ub/indirectbr_poison.ll) |
 
 </details>
 
 ## Tests
 
-✅ and ❌ mark whether `veir-interpret` has the same result as `llubi` and `alive-exec`.
+✅, ⚪ and ❌ mark whether `veir-interpret` has the same result as `llubi` and `alive-exec`.
 
 <details>
 <summary>All 102 tests, those with a result first</summary>
 
 | Test | veir-interpret | llubi | alive-exec |
 | -- | -- | -- | -- |
-| `clean/gep-16-bit-addrspace.ll` | `Program output: #[]` | ✅ `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/global_external.ll` | `Program output: #[]` | ✅ `Program output: #[]` | crashed |
-| `clean/main2.ll` | `Program output: #[0x00000000#32]` | ✅ `Program output: #[0x00000000#32]` | ✅ `Program output: #[0x00000000#32]` |
-| `clean/noalias_scope.ll` | `Program output: #[]` | ✅ `Program output: #[]` | rejected: `Unsupported type: metadata` |
-| `ub/alloca_large_count.ll` | UB at `%1 = "llvm.alloca"(%0) <{alignment = 4 : i64, elem_type = i32}> : (i128) -> !llvm.ptr` (line 4) | ✅ `Immediate UB detected: Alloca with large array size that overflows uint64_t. Size: -1` | ✅ `UB triggered` |
-| `ub/alloca_size_overflow.ll` | UB at `%1 = "llvm.alloca"(%0) <{alignment = 4 : i64, elem_type = i32}> : (i64) -> !llvm.ptr` (line 4) | ✅ `Immediate UB detected: Alloca with allocation size that overflows uint64_t. Size: -1` | ✅ `UB triggered` |
-| `ub/br_poison.ll` | UB at `"llvm.cond_br"(%0)[^bb1, ^bb1] <{operandSegmentSizes = array<i32: 1, 0, 0>}> : (i1) -> ()` (line 4) | ✅ `Immediate UB detected: Branch on poison condition.` | rejected: `Error in SMT solver: memout` |
-| `ub/global_constant_store.ll` | `Program output: #[]` | ❌ `Immediate UB detected: Try to write to a constant memory object: ptr 0x8 [@constant].` | ❌ `UB triggered` |
-| `ub/inttoptr_generation.ll` | UB at `"llvm.store"(%2, %7) <{alignment = 4 : i64, ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()` (line 12) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | failed: `Severe Z3 error` |
-| `ub/inttoptr_generation2.ll` | UB at `"llvm.store"(%2, %9) <{alignment = 4 : i64, ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()` (line 14) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | failed: `Severe Z3 error` |
-| `ub/inttoptr_gep.ll` | `Program output: #[]` | ❌ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ❌ `UB triggered` |
-| `ub/inttoptr_multiobj.ll` | UB at `"llvm.store"(%3, %11) <{alignment = 2 : i64, ordering = 0 : i64}> : (i16, !llvm.ptr) -> ()` (line 16) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ✅ `UB triggered` |
-| `ub/inttoptr_multiobj2.ll` | UB at `"llvm.store"(%1, %8) <{alignment = 4 : i64, ordering = 0 : i64}> : (i32, !llvm.ptr) -> ()` (line 14) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ✅ `UB triggered` |
-| `ub/inttoptr_oob.ll` | UB at `"llvm.store"(%3, %7) <{alignment = 4 : i64, ordering = 0 : i64}> : (i64, !llvm.ptr) -> ()` (line 13) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ✅ `UB triggered` |
-| `ub/inttoptr_oob2.ll` | UB at `"llvm.store"(%3, %8) <{alignment = 4 : i64, ordering = 0 : i64}> : (i64, !llvm.ptr) -> ()` (line 14) | ✅ `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | ✅ `UB triggered` |
-| `ub/load_noundef_ub_poison.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value loaded contains undefined bits.` | ❌ `UB triggered` |
-| `ub/load_noundef_ub_undef.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value loaded contains undefined bits.` | ❌ `UB triggered` |
-| `ub/metadata_noundef_ub.ll` | `Program output: #[]` | ❌ `Immediate UB detected: The value poison violates !noundef metadata.` | ❌ `UB triggered` |
-| `ub/switch_poison.ll` | UB at `"llvm.switch"(%0)[^bb1] <{case_operand_segments = array<i32>, operandSegmentSizes = array<i32: 1, 0, 0>}> : (i32) -> ()` (line 4) | ✅ `Immediate UB detected: Switch on poison condition.` | rejected: `Error in SMT solver: memout` |
-| `ub/unreachable.ll` | UB at `"llvm.unreachable"() : () -> ()` (line 3) | ✅ `Immediate UB detected: Unreachable code.` | ✅ `UB triggered` |
-| `clean/alloca.ll` | **interpreter**: failed at `llvm.call` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/assume_operand_bundles.ll` | **interpreter**: failed at `llvm.intr.assume` | `Program output: #[]` | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "dereferenceable_or_null"(ptr %alloc, i32 4)` |
-| `clean/bitcast_be.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | rejected: `Unsupported type: b64` |
-| `clean/bitcast_le.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | rejected: `Unsupported type: b64` |
-| `clean/byval.ll` | **interpreter**: failed at `llvm.call` | `Program output: #[]` | `UB triggered` |
-| `clean/byval_padding.ll` | **interpreter**: `unsupported value of global @g` | `Program output: #[]` | crashed |
-| `clean/fp_arith_bfloat.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_arith_double.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_arith_float.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_arith_fp128.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_arith_fp80.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | rejected: `Unsupported type: x86_fp80` |
-| `clean/fp_arith_half.ll` | **verifier**: `llvm.fadd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_cast.ll` | **verifier**: `llvm.sitofp: Expected operand 0 to have integer type` | `Program output: #[]` | crashed |
-| `clean/fp_cmp.ll` | **interpreter**: failed at `llvm.fcmp` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_denorm.ll` | **interpreter**: failed at `llvm.fadd` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_fastmath.ll` | **interpreter**: failed at `llvm.fdiv` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/fp_phi_select.ll` | **interpreter**: failed at `llvm.fdiv` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/gep.ll` | **parser**: `vector element type expected` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/global_constexpr_initializer.ll` | **parser**: `vector element type expected` | `Program output: #[]` | rejected: `program doesn't type check!` |
-| `clean/icmp_ptr.ll` | **verifier**: `llvm.icmp: Expected operand 0 to have integer or pointer type` | `Program output: #[]` | crashed |
-| `clean/int_arith.ll` | **verifier**: `llvm.add: Expected operand 0 to have integer type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_arith_overflow.ll` | **interpreter**: failed at `llvm.mlir.undef` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_arith_sat.ll` | **verifier**: `llvm.intr.sadd.sat: Expected operand 0 to have integer type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_bit_manip.ll` | **verifier**: `llvm.intr.bitreverse: Expected operand 0 to have integer type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_experimental_vector.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_fp_fma.ll` | **verifier**: `llvm.intr.fmuladd: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_fp_fptoi_sat.ll` | **interpreter**: failed at `llvm.mlir.poison` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_fp_is_fpclass.ll` | **interpreter**: failed at `llvm.mlir.poison` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_fp_minmax.ll` | **interpreter**: failed at `llvm.mlir.poison` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_fp_unary.ll` | **verifier**: `llvm.intr.fabs: Expected operand 0 to have floating point type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_int_arith.ll` | **verifier**: `llvm.intr.abs: Expected operand 0 to have integer type` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_memory.ll` | **interpreter**: failed at `llvm.intr.memset.inline` | `Program output: #[]` | `UB triggered` |
-| `clean/intr_passthrough.ll` | **interpreter**: failed at `llvm.intr.ssa.copy` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_vector_manip.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_vector_reduce.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/intr_vscale.ll` | **interpreter**: failed at `llvm.intr.vscale` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/inttoptr.ll` | **interpreter**: failed at `llvm.inttoptr` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/inttoptr_ptrtoint_constantexpr.ll` | **verifier**: `llvm.add: Expected operand 0 to have integer type` | `Program output: #[]` | crashed |
-| `clean/loadstore_overaligned.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/metadata.ll` | **interpreter**: failed at `llvm.mlir.constant` | `Program output: #[]` | rejected: `Unsupported metadata: 47` |
-| `clean/ptrtoaddr.ll` | **parser**: `Expected punctuation '}'` | `Program output: #[]` | rejected: `Unsupported instruction:   %wide1 = inttoptr i64 4294967301 to ptr addrspace(1)` |
-| `clean/ptrtoaddr_after_ptrtoint.ll` | **interpreter**: failed at `llvm.ptrtoaddr` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/reset_return_value_slot.ll` | **interpreter**: failed at `llvm.call` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/struct.ll` | **interpreter**: failed at `llvm.mlir.poison` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `clean/undef.ll` | **verifier**: `llvm.add: Expected operand 0 to have integer type` | `Program output: #[]` | crashed |
-| `clean/vector.ll` | **parser**: `vector element type expected` | `Program output: #[]` | failed: `Severe Z3 error` |
-| `ub/alloca_poison_count.ll` | **interpreter**: failed at `llvm.alloca` | `Immediate UB detected: Alloca with poison array size.` | `UB triggered` |
-| `ub/assume_false.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: Assume on false or poison condition.` | `UB triggered` |
-| `ub/assume_invalid_align.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The pointer ptr 0x8 [alloc] violates align(4294967296) assumption.` | `UB triggered` |
-| `ub/assume_misalign.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The pointer ptr 0x8 [alloc] violates align(2048) assumption.` | `UB triggered` |
-| `ub/assume_misalign_all_ones.ll` | **parser**: `Expected punctuation '}'` | `Immediate UB detected: The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates align(2048) assumption.` | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "align"(ptr addrspace(1) null, i32 2048) ]` |
-| `ub/assume_non_pow2_align_offset.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: Assume on pointer ptr 0x8 [alloc] with a nonzero adjusted address and a non-power-of-two alignment 17.` | `UB triggered` |
-| `ub/assume_nondereferenceable.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The pointer ptr 0x8 [alloc] violates dereferenceable(2048) assumption.` | `UB triggered` |
-| `ub/assume_null.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The pointer ptr 0x0 [nullary] violates nonnull assumption.` | `UB triggered` |
-| `ub/assume_null_all_ones.ll` | **parser**: `Expected punctuation '}'` | `Immediate UB detected: The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates nonnull assumption.` | rejected: `Unsupported instruction:   %res = load ptr addrspace(1), ptr %storage, align 8` |
-| `ub/assume_poison.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The value poison violates noundef attribute.` | `UB triggered` |
-| `ub/assume_poison_align.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: Assume on poison pointer.` | `UB triggered` |
-| `ub/assume_pow2_align_offset.ll` | **interpreter**: failed at `llvm.intr.assume` | `Immediate UB detected: The pointer ptr 0x8 [alloc] violates align(16) assumption.` | `UB triggered` |
-| `ub/attribute_dereferenceable_ub_nullary_provenance.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value ptr 0xE82FEEACEEB98B3E [nullary] violates dereferenceable(4) attribute.` | `UB triggered` |
-| `ub/attribute_dereferenceable_ub_oob1.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value ptr 0x8 [alloc] violates dereferenceable(8) attribute.` | `UB triggered` |
-| `ub/attribute_dereferenceable_ub_oob2.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value ptr 0x7 [alloc + -1] violates dereferenceable(2) attribute.` | `UB triggered` |
-| `ub/attribute_dereferenceable_ub_oob3.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value ptr 0xA [alloc + 2] violates dereferenceable(3) attribute.` | `UB triggered` |
-| `ub/attribute_dereferenceable_ub_poison.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value poison violates dereferenceable(4) attribute.` | `UB triggered` |
-| `ub/attribute_noundef_agg_ub.ll` | **interpreter**: failed at `llvm.mlir.undef` | `Immediate UB detected: The value { i32 0, poison } violates noundef attribute.` | rejected: `Unsupported attribute:` |
-| `ub/attribute_noundef_ub.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: The value poison violates noundef attribute.` | `UB triggered` |
-| `ub/byval_lifetime.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Try to access a dead memory object at address 0x10.` | failed: `Severe Z3 error` |
-| `ub/byval_misalign.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Misaligned memory access. Address: 0x8, Required alignment: 16.` | `UB triggered` |
-| `ub/byval_misalign_callsite.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Misaligned memory access. Address: 0x8, Required alignment: 16.` | `UB triggered` |
-| `ub/byval_mismatch1.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Mismatched byval attribute between callee and callsite.` | failed: `Severe Z3 error` |
-| `ub/byval_mismatch2.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Mismatched byval attribute between callee and callsite.` | failed: `Severe Z3 error` |
-| `ub/byval_mismatch3.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Mismatched byval attribute between callee and callsite.` | failed: `Severe Z3 error` |
-| `ub/byval_null.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | `UB triggered` |
-| `ub/byval_oversize.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Memory access is out of bounds. Accessed size: 4, Address: 0x8, Object base: 0x8, Object size: 1.` | `UB triggered` |
-| `ub/byval_poison.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Invalid poison byval pointer argument.` | `UB triggered` |
-| `ub/call_mismatched_signature.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Indirect call through a function pointer with mismatched signature. Expected: void (), Actual: i32 ()` | failed: `Severe Z3 error` |
-| `ub/call_poison.ll` | **interpreter**: failed at `llvm.call` | `Immediate UB detected: Indirect call through poison function pointer.` | `UB triggered` |
-| `ub/indirectbr_poison.ll` | **verifier**: `llvm.func: Expected the last operation of a block to be a terminator` | `Immediate UB detected: Indirect branch on poison.` | rejected: `Unsupported instruction:   indirectbr ptr poison, [label %exit]` |
-| `ub/intr_memory_constant_ub.ll` | **interpreter**: `unsupported value of global @constant_dst` | `Immediate UB detected: Try to write to a constant memory object: ptr 0x8 [@constant_dst].` | `UB triggered` |
-| `ub/load_noundef_ub_poison_padding.ll` | **interpreter**: failed at `llvm.mlir.undef` | `Immediate UB detected: The value loaded contains undefined bits.` | `UB triggered` |
-| `ub/ptrtoaddr_no_expose.ll` | **interpreter**: failed at `llvm.ptrtoaddr` | `Immediate UB detected: Invalid memory access via a pointer with nullary provenance.` | failed: `Severe Z3 error` |
-| `ub/store_dead.ll` | **interpreter**: failed at `llvm.intr.lifetime.start` | `Immediate UB detected: Try to access a dead memory object at address 0x8.` | `UB triggered` |
-| `ub/store_dead_gep.ll` | **interpreter**: failed at `llvm.intr.lifetime.start` | `Immediate UB detected: Try to access a dead memory object at address 0x9.` | `UB triggered` |
+| [`clean/gep-16-bit-addrspace.ll`](llubi-tests/clean/gep-16-bit-addrspace.ll) | returned `void` | ⚪ returned `void` | failed: `Severe Z3 error` |
+| [`clean/global_external.ll`](llubi-tests/clean/global_external.ll) | returned `void` | ⚪ returned `void` | crashed |
+| [`clean/main2.ll`](llubi-tests/clean/main2.ll) | returned `i32 0` | ✅ returned `i32 0` | ✅ returned `i32 0` |
+| [`clean/noalias_scope.ll`](llubi-tests/clean/noalias_scope.ll) | returned `void` | ⚪ returned `void` | rejected: `Unsupported type: metadata` |
+| [`ub/alloca_large_count.ll`](llubi-tests/ub/alloca_large_count.ll) | UB at `llvm.alloca` | ✅ UB at [line 5](llubi-tests/ub/alloca_large_count.ll#L5): Alloca with large array size that overflows uint64_t. Size: -1 | ✅ UB at `%alloc_dyn` |
+| [`ub/alloca_size_overflow.ll`](llubi-tests/ub/alloca_size_overflow.ll) | UB at `llvm.alloca` | ✅ UB at [line 5](llubi-tests/ub/alloca_size_overflow.ll#L5): Alloca with allocation size that overflows uint64_t. Size: -1 | ✅ UB at `%alloc_dyn` |
+| [`ub/br_poison.ll`](llubi-tests/ub/br_poison.ll) | UB at `llvm.cond_br` | ✅ UB at [line 6](llubi-tests/ub/br_poison.ll#L6): Branch on poison condition. | rejected: `Error in SMT solver: memout` |
+| [`ub/global_constant_store.ll`](llubi-tests/ub/global_constant_store.ll) | returned `void` | ❌ UB at [line 6](llubi-tests/ub/global_constant_store.ll#L6): Try to write to a constant memory object: ptr 0x8 [@constant]. | ❌ UB at `store` |
+| [`ub/inttoptr_generation.ll`](llubi-tests/ub/inttoptr_generation.ll) | UB at `llvm.store` | ✅ UB at [line 19](llubi-tests/ub/inttoptr_generation.ll#L19): Invalid memory access via a pointer with nullary provenance. | failed: `Severe Z3 error` |
+| [`ub/inttoptr_generation2.ll`](llubi-tests/ub/inttoptr_generation2.ll) | UB at `llvm.store` | ✅ UB at [line 22](llubi-tests/ub/inttoptr_generation2.ll#L22): Invalid memory access via a pointer with nullary provenance. | failed: `Severe Z3 error` |
+| [`ub/inttoptr_gep.ll`](llubi-tests/ub/inttoptr_gep.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_gep.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep_oob` |
+| [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) | UB at `llvm.store` | ✅ UB at [line 23](llubi-tests/ub/inttoptr_multiobj.ll#L23): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%gep2` |
+| [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) | UB at `llvm.store` | ✅ UB at [line 24](llubi-tests/ub/inttoptr_multiobj2.ll#L24): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%gep2` |
+| [`ub/inttoptr_oob.ll`](llubi-tests/ub/inttoptr_oob.ll) | UB at `llvm.store` | ✅ UB at [line 16](llubi-tests/ub/inttoptr_oob.ll#L16): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%ptr_inbounds_resolved` |
+| [`ub/inttoptr_oob2.ll`](llubi-tests/ub/inttoptr_oob2.ll) | UB at `llvm.store` | ✅ UB at [line 18](llubi-tests/ub/inttoptr_oob2.ll#L18): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%ptr_inbounds_resolved` |
+| [`ub/load_noundef_ub_poison.ll`](llubi-tests/ub/load_noundef_ub_poison.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_poison.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
+| [`ub/load_noundef_ub_undef.ll`](llubi-tests/ub/load_noundef_ub_undef.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_undef.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
+| [`ub/metadata_noundef_ub.ll`](llubi-tests/ub/metadata_noundef_ub.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/metadata_noundef_ub.ll#L7): The value poison violates !noundef metadata. | ❌ UB at `assume` |
+| [`ub/switch_poison.ll`](llubi-tests/ub/switch_poison.ll) | UB at `llvm.switch` | ✅ UB: Switch on poison condition. | rejected: `Error in SMT solver: memout` |
+| [`ub/unreachable.ll`](llubi-tests/ub/unreachable.ll) | UB at `llvm.unreachable` | ✅ UB at [line 5](llubi-tests/ub/unreachable.ll#L5): Unreachable code. | ✅ UB at `assume` |
+| [`clean/alloca.ll`](llubi-tests/clean/alloca.ll) | `llvm.call`: `() -> i32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/assume_operand_bundles.ll`](llubi-tests/clean/assume_operand_bundles.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr) -> ()` | returned `void` | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "dereferenceable_or_null"(ptr %alloc, i32 4)` |
+| [`clean/bitcast_be.ll`](llubi-tests/clean/bitcast_be.ll) | `llvm.mlir.constant`: `() -> vector<2xi32>` | returned `void` | rejected: `Unsupported type: b64` |
+| [`clean/bitcast_le.ll`](llubi-tests/clean/bitcast_le.ll) | `llvm.mlir.constant`: `() -> vector<2xi32>` | returned `void` | rejected: `Unsupported type: b64` |
+| [`clean/byval.ll`](llubi-tests/clean/byval.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | returned `void` | UB |
+| [`clean/byval_padding.ll`](llubi-tests/clean/byval_padding.ll) | **other**: `unsupported value of global @g` | returned `void` | crashed |
+| [`clean/fp_arith_bfloat.ll`](llubi-tests/clean/fp_arith_bfloat.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_arith_double.ll`](llubi-tests/clean/fp_arith_double.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_arith_float.ll`](llubi-tests/clean/fp_arith_float.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_arith_fp128.ll`](llubi-tests/clean/fp_arith_fp128.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_arith_fp80.ll`](llubi-tests/clean/fp_arith_fp80.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | rejected: `Unsupported type: x86_fp80` |
+| [`clean/fp_arith_half.ll`](llubi-tests/clean/fp_arith_half.ll) | `llvm.fadd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_cast.ll`](llubi-tests/clean/fp_cast.ll) | `llvm.sitofp`: verifier says `Expected operand 0 to have integer type` | returned `void` | crashed |
+| [`clean/fp_cmp.ll`](llubi-tests/clean/fp_cmp.ll) | `llvm.fcmp`: `(f32, f32) -> i1` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_denorm.ll`](llubi-tests/clean/fp_denorm.ll) | `llvm.fadd`: `(f32, f32) -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_fastmath.ll`](llubi-tests/clean/fp_fastmath.ll) | `llvm.fdiv`: `(f32, f32) -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/fp_phi_select.ll`](llubi-tests/clean/fp_phi_select.ll) | `llvm.fdiv`: `(f32, f32) -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/gep.ll`](llubi-tests/clean/gep.ll) | **parser**: `vector element type expected` at `vector<[4]xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/global_constexpr_initializer.ll`](llubi-tests/clean/global_constexpr_initializer.ll) | **parser**: `vector element type expected` at `vector<[2]x!llvm.ptr>` | returned `void` | rejected: `program doesn't type check!` |
+| [`clean/icmp_ptr.ll`](llubi-tests/clean/icmp_ptr.ll) | `llvm.icmp`: verifier says `Expected operand 0 to have integer or pointer type` | returned `void` | crashed |
+| [`clean/int_arith.ll`](llubi-tests/clean/int_arith.ll) | `llvm.add`: verifier says `Expected operand 0 to have integer type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_arith_overflow.ll`](llubi-tests/clean/intr_arith_overflow.ll) | `llvm.mlir.undef`: `() -> vector<2xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_arith_sat.ll`](llubi-tests/clean/intr_arith_sat.ll) | `llvm.intr.sadd.sat`: verifier says `Expected operand 0 to have integer type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_bit_manip.ll`](llubi-tests/clean/intr_bit_manip.ll) | `llvm.intr.bitreverse`: verifier says `Expected operand 0 to have integer type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_experimental_vector.ll`](llubi-tests/clean/intr_experimental_vector.ll) | `llvm.mlir.constant`: `() -> vector<4xi1>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_fp_fma.ll`](llubi-tests/clean/intr_fp_fma.ll) | `llvm.intr.fmuladd`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_fp_fptoi_sat.ll`](llubi-tests/clean/intr_fp_fptoi_sat.ll) | `llvm.mlir.poison`: `() -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_fp_is_fpclass.ll`](llubi-tests/clean/intr_fp_is_fpclass.ll) | `llvm.mlir.poison`: `() -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_fp_minmax.ll`](llubi-tests/clean/intr_fp_minmax.ll) | `llvm.mlir.poison`: `() -> f32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_fp_unary.ll`](llubi-tests/clean/intr_fp_unary.ll) | `llvm.intr.fabs`: verifier says `Expected operand 0 to have floating point type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_int_arith.ll`](llubi-tests/clean/intr_int_arith.ll) | `llvm.intr.abs`: verifier says `Expected operand 0 to have integer type` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_memory.ll`](llubi-tests/clean/intr_memory.ll) | `llvm.intr.memset.inline`: `(!llvm.ptr, i8) -> ()` | returned `void` | UB at `memcpy` |
+| [`clean/intr_passthrough.ll`](llubi-tests/clean/intr_passthrough.ll) | `llvm.intr.ssa.copy`: `(i32) -> i32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_vector_manip.ll`](llubi-tests/clean/intr_vector_manip.ll) | `llvm.mlir.constant`: `() -> vector<6xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_vector_reduce.ll`](llubi-tests/clean/intr_vector_reduce.ll) | `llvm.mlir.constant`: `() -> vector<4xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/intr_vscale.ll`](llubi-tests/clean/intr_vscale.ll) | `llvm.intr.vscale`: `() -> i32` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/inttoptr.ll`](llubi-tests/clean/inttoptr.ll) | `llvm.inttoptr`: `(i8) -> !llvm.ptr` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/inttoptr_ptrtoint_constantexpr.ll`](llubi-tests/clean/inttoptr_ptrtoint_constantexpr.ll) | `llvm.add`: verifier says `Expected operand 0 to have integer type` | returned `void` | crashed |
+| [`clean/loadstore_overaligned.ll`](llubi-tests/clean/loadstore_overaligned.ll) | `llvm.mlir.constant`: `() -> vector<4xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/metadata.ll`](llubi-tests/clean/metadata.ll) | `llvm.mlir.constant`: `() -> vector<8xi32>` | returned `void` | rejected: `Unsupported metadata: 47` |
+| [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | returned `void` | rejected: `Unsupported instruction:   %wide1 = inttoptr i64 4294967301 to ptr addrspace(1)` |
+| [`clean/ptrtoaddr_after_ptrtoint.ll`](llubi-tests/clean/ptrtoaddr_after_ptrtoint.ll) | `llvm.ptrtoaddr`: `(!llvm.ptr) -> i64` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/reset_return_value_slot.ll`](llubi-tests/clean/reset_return_value_slot.ll) | `llvm.call`: `() -> i16` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/struct.ll`](llubi-tests/clean/struct.ll) | `llvm.mlir.poison`: `() -> !llvm.struct<(i32, i32)>` | returned `void` | failed: `Severe Z3 error` |
+| [`clean/undef.ll`](llubi-tests/clean/undef.ll) | `llvm.add`: verifier says `Expected operand 0 to have integer type` | returned `void` | crashed |
+| [`clean/vector.ll`](llubi-tests/clean/vector.ll) | **parser**: `vector element type expected` at `vector<[4]xi32>` | returned `void` | failed: `Severe Z3 error` |
+| [`ub/alloca_poison_count.ll`](llubi-tests/ub/alloca_poison_count.ll) | `llvm.alloca`: `(i32) -> !llvm.ptr` | UB at [line 5](llubi-tests/ub/alloca_poison_count.ll#L5): Alloca with poison array size. | UB at `%alloc_dyn` |
+| [`ub/assume_false.ll`](llubi-tests/ub/assume_false.ll) | `llvm.intr.assume`: `(i1) -> ()` | UB at [line 5](llubi-tests/ub/assume_false.ll#L5): Assume on false or poison condition. | UB at `assume` |
+| [`ub/assume_invalid_align.ll`](llubi-tests/ub/assume_invalid_align.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i64) -> ()` | UB at [line 9](llubi-tests/ub/assume_invalid_align.ll#L9): The pointer ptr 0x8 [alloc] violates align(4294967296) assumption. | UB at `assume` |
+| [`ub/assume_misalign.ll`](llubi-tests/ub/assume_misalign.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 6](llubi-tests/ub/assume_misalign.ll#L6): The pointer ptr 0x8 [alloc] violates align(2048) assumption. | UB at `assume` |
+| [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | UB at [line 7](llubi-tests/ub/assume_misalign_all_ones.ll#L7): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates align(2048) assumption. | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "align"(ptr addrspace(1) null, i32 2048) ]` |
+| [`ub/assume_non_pow2_align_offset.ll`](llubi-tests/ub/assume_non_pow2_align_offset.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32, i32) -> ()` | UB at [line 9](llubi-tests/ub/assume_non_pow2_align_offset.ll#L9): Assume on pointer ptr 0x8 [alloc] with a nonzero adjusted address and a non-power-of-two alignment 17. | UB at `assume` |
+| [`ub/assume_nondereferenceable.ll`](llubi-tests/ub/assume_nondereferenceable.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 6](llubi-tests/ub/assume_nondereferenceable.ll#L6): The pointer ptr 0x8 [alloc] violates dereferenceable(2048) assumption. | UB at `assume` |
+| [`ub/assume_null.ll`](llubi-tests/ub/assume_null.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr) -> ()` | UB at [line 5](llubi-tests/ub/assume_null.ll#L5): The pointer ptr 0x0 [nullary] violates nonnull assumption. | UB at `assume` |
+| [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | UB at [line 10](llubi-tests/ub/assume_null_all_ones.ll#L10): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates nonnull assumption. | rejected: `Unsupported instruction:   %res = load ptr addrspace(1), ptr %storage, align 8` |
+| [`ub/assume_poison.ll`](llubi-tests/ub/assume_poison.ll) | `llvm.intr.assume`: `(i1) -> ()` | UB at [line 5](llubi-tests/ub/assume_poison.ll#L5): The value poison violates noundef attribute. | UB at `assume` |
+| [`ub/assume_poison_align.ll`](llubi-tests/ub/assume_poison_align.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 5](llubi-tests/ub/assume_poison_align.ll#L5): Assume on poison pointer. | UB at `assume` |
+| [`ub/assume_pow2_align_offset.ll`](llubi-tests/ub/assume_pow2_align_offset.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32, i32) -> ()` | UB at [line 9](llubi-tests/ub/assume_pow2_align_offset.ll#L9): The pointer ptr 0x8 [alloc] violates align(16) assumption. | UB at `assume` |
+| [`ub/attribute_dereferenceable_ub_nullary_provenance.ll`](llubi-tests/ub/attribute_dereferenceable_ub_nullary_provenance.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 11](llubi-tests/ub/attribute_dereferenceable_ub_nullary_provenance.ll#L11): The value ptr 0xE82FEEACEEB98B3E [nullary] violates dereferenceable(4) attribute. | UB |
+| [`ub/attribute_dereferenceable_ub_oob1.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob1.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/attribute_dereferenceable_ub_oob1.ll#L10): The value ptr 0x8 [alloc] violates dereferenceable(8) attribute. | UB |
+| [`ub/attribute_dereferenceable_ub_oob2.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob2.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 11](llubi-tests/ub/attribute_dereferenceable_ub_oob2.ll#L11): The value ptr 0x7 [alloc + -1] violates dereferenceable(2) attribute. | UB |
+| [`ub/attribute_dereferenceable_ub_oob3.ll`](llubi-tests/ub/attribute_dereferenceable_ub_oob3.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 11](llubi-tests/ub/attribute_dereferenceable_ub_oob3.ll#L11): The value ptr 0xA [alloc + 2] violates dereferenceable(3) attribute. | UB |
+| [`ub/attribute_dereferenceable_ub_poison.ll`](llubi-tests/ub/attribute_dereferenceable_ub_poison.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/attribute_dereferenceable_ub_poison.ll#L9): The value poison violates dereferenceable(4) attribute. | UB |
+| [`ub/attribute_noundef_agg_ub.ll`](llubi-tests/ub/attribute_noundef_agg_ub.ll) | `llvm.mlir.undef`: `() -> !llvm.struct<(i32, i32)>` | UB at [line 9](llubi-tests/ub/attribute_noundef_agg_ub.ll#L9): The value { i32 0, poison } violates noundef attribute. | rejected: `Unsupported attribute:` |
+| [`ub/attribute_noundef_ub.ll`](llubi-tests/ub/attribute_noundef_ub.ll) | `llvm.call`: `(i32) -> ()` | UB at [line 10](llubi-tests/ub/attribute_noundef_ub.ll#L10): The value poison violates noundef attribute. | UB |
+| [`ub/byval_lifetime.ll`](llubi-tests/ub/byval_lifetime.ll) | `llvm.call`: `(!llvm.ptr) -> !llvm.ptr` | UB at [line 11](llubi-tests/ub/byval_lifetime.ll#L11): Try to access a dead memory object at address 0x10. | failed: `Severe Z3 error` |
+| [`ub/byval_misalign.ll`](llubi-tests/ub/byval_misalign.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_misalign.ll#L10): Misaligned memory access. Address: 0x8, Required alignment: 16. | UB |
+| [`ub/byval_misalign_callsite.ll`](llubi-tests/ub/byval_misalign_callsite.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_misalign_callsite.ll#L10): Misaligned memory access. Address: 0x8, Required alignment: 16. | UB |
+| [`ub/byval_mismatch1.ll`](llubi-tests/ub/byval_mismatch1.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_mismatch1.ll#L10): Mismatched byval attribute between callee and callsite. | failed: `Severe Z3 error` |
+| [`ub/byval_mismatch2.ll`](llubi-tests/ub/byval_mismatch2.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_mismatch2.ll#L10): Mismatched byval attribute between callee and callsite. | failed: `Severe Z3 error` |
+| [`ub/byval_mismatch3.ll`](llubi-tests/ub/byval_mismatch3.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_mismatch3.ll#L10): Mismatched byval attribute between callee and callsite. | failed: `Severe Z3 error` |
+| [`ub/byval_null.ll`](llubi-tests/ub/byval_null.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/byval_null.ll#L9): Invalid memory access via a pointer with nullary provenance. | UB |
+| [`ub/byval_oversize.ll`](llubi-tests/ub/byval_oversize.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 10](llubi-tests/ub/byval_oversize.ll#L10): Memory access is out of bounds. Accessed size: 4, Address: 0x8, Object base: 0x8, Object size: 1. | UB |
+| [`ub/byval_poison.ll`](llubi-tests/ub/byval_poison.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/byval_poison.ll#L9): Invalid poison byval pointer argument. | UB |
+| [`ub/call_mismatched_signature.ll`](llubi-tests/ub/call_mismatched_signature.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/call_mismatched_signature.ll#L9): Indirect call through a function pointer with mismatched signature. Expected: void (), Actual: i32 () | failed: `Severe Z3 error` |
+| [`ub/call_poison.ll`](llubi-tests/ub/call_poison.ll) | `llvm.call`: `(!llvm.ptr) -> ()` | UB at [line 6](llubi-tests/ub/call_poison.ll#L6): Indirect call through poison function pointer. | UB |
+| [`ub/indirectbr_poison.ll`](llubi-tests/ub/indirectbr_poison.ll) | `llvm.func`: verifier says `Expected the last operation of a block to be a terminator` | UB at [line 6](llubi-tests/ub/indirectbr_poison.ll#L6): Indirect branch on poison. | rejected: `Unsupported instruction:   indirectbr ptr poison, [label %exit]` |
+| [`ub/intr_memory_constant_ub.ll`](llubi-tests/ub/intr_memory_constant_ub.ll) | **other**: `unsupported value of global @constant_dst` | UB at [line 7](llubi-tests/ub/intr_memory_constant_ub.ll#L7): Try to write to a constant memory object: ptr 0x8 [@constant_dst]. | UB at `memset` |
+| [`ub/load_noundef_ub_poison_padding.ll`](llubi-tests/ub/load_noundef_ub_poison_padding.ll) | `llvm.mlir.undef`: `() -> vector<2xi4>` | UB at [line 7](llubi-tests/ub/load_noundef_ub_poison_padding.ll#L7): The value loaded contains undefined bits. | UB at `assume` |
+| [`ub/ptrtoaddr_no_expose.ll`](llubi-tests/ub/ptrtoaddr_no_expose.ll) | `llvm.ptrtoaddr`: `(!llvm.ptr) -> i64` | UB at [line 9](llubi-tests/ub/ptrtoaddr_no_expose.ll#L9): Invalid memory access via a pointer with nullary provenance. | failed: `Severe Z3 error` |
+| [`ub/store_dead.ll`](llubi-tests/ub/store_dead.ll) | `llvm.intr.lifetime.start`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/store_dead.ll#L9): Try to access a dead memory object at address 0x8. | UB at `store` |
+| [`ub/store_dead_gep.ll`](llubi-tests/ub/store_dead_gep.ll) | `llvm.intr.lifetime.start`: `(!llvm.ptr) -> ()` | UB at [line 9](llubi-tests/ub/store_dead_gep.ll#L9): Try to access a dead memory object at address 0x9. | UB at `store` |
 
 </details>
 

@@ -14,6 +14,8 @@ make check-corpus # Optional
 VEIR_DIR=veir make scoreboard --jobs <N>
 ```
 
+Next to it, `results.json` keeps each test's results, so that the next run can list what changed.
+
 GitHub Actions does this automatically: [`scoreboard.yml`](.github/workflows/scoreboard.yml) polls VeIR's `main` every five minutes and commits a new `SCOREBOARD.md` whenever it has moved.
 
 The tests in `llubi-tests` are taken from LLVM's `llubi` test suite.

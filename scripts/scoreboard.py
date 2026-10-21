@@ -4,6 +4,8 @@
 llubi and alive-exec are read with VeIR's `Tools/vsmith`, as VeIR's own
 `Tools/llubi-interpret` and `Tools/alive-interpret` do. It writes their results
 as veir-interpret prints its own, so all three compare as text.
+
+The results are also written as JSON, so that the next run can list what changed.
 """
 
 import argparse
@@ -18,12 +20,15 @@ from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from capture import EXIT_STATUS, TIMEOUT
 from corpus_manifest import sha256
 
 VEIR_REPOSITORY = "https://github.com/opencompl/veir"
+SCOREBOARD_REPOSITORY = "https://github.com/opencompl/veir-interpreter-scoreboard"
 UB = "Undefined behavior"
+VOID = "Program output: #[]"
 
 # Outcomes
 
@@ -31,8 +36,18 @@ UB = "Undefined behavior"
 @dataclass(frozen=True, slots=True)
 class Outcome:
     result: str | None  # As veir-interpret prints it; None if the tool gave none.
-    detail: str  # What the tool printed about `result`, or why there is none.
-    timeout: bool = False
+    detail: str = ""  # Markdown: where the UB is, or why there is no result.
+
+
+@dataclass(frozen=True, slots=True)
+class Stop:
+    """Why veir-interpret gave no result."""
+
+    operation: str  # Markdown: the operation it stopped at, or **parser**, ...
+    why: str = ""  # Markdown: the types of that operation, or a message.
+
+    def __str__(self) -> str:
+        return f"{self.operation}: {self.why}" if self.why else self.operation
 
 
 def find(pattern: str, lines: Iterable[str]) -> re.Match[str] | None:
@@ -60,11 +75,6 @@ def load_vsmith(veir_dir: Path) -> ModuleType:
     return vsmith
 
 
-def classified(result: tuple[str, str]) -> Outcome:
-    output, value = result
-    return Outcome(output, code(value))
-
-
 def main_trace(trace: str) -> str:
     """
     llubi's trace without the calls that `main` returned from, so that their
@@ -85,18 +95,26 @@ def main_trace(trace: str) -> str:
     return "\n".join(kept)
 
 
-def llubi_outcome(trace: str, vsmith: ModuleType) -> Outcome:
+def llubi_outcome(trace: str, source: str, vsmith: ModuleType) -> Outcome:
     if crashed(trace):
         return Outcome(None, "crashed")
     try:
-        return classified(vsmith.classify_llubi_output(main_trace(trace)))
+        result, _ = vsmith.classify_llubi_output(main_trace(trace))
     except ValueError:
         return Outcome(None, "no recognizable result")
+    if result != UB:
+        return Outcome(result)
+    lines = trace.splitlines()
+    # The innermost frame of the stack trace is the instruction with UB.
+    frame = find(r"#0 .*:(\d+)", lines)
+    where = f" at [line {frame[1]}]({source}#L{frame[1]})" if frame else ""
+    message = find(r".*Immediate UB detected: (.*)", lines)
+    return Outcome(UB, f"UB{where}" + (f": {plain(message[1])}" if message else ""))
 
 
 def alive_outcome(trace: str, vsmith: ModuleType) -> Outcome:
     if exit_status(trace.splitlines()) == TIMEOUT:
-        return Outcome(None, "timeout", timeout=True)
+        return Outcome(None, "timeout")
     # As in `Tools/alive-interpret`.
     if "Severe Z3 error" in trace:
         return Outcome(None, "failed: `Severe Z3 error`")
@@ -108,40 +126,49 @@ def alive_outcome(trace: str, vsmith: ModuleType) -> Outcome:
     declared = re.search(r"^define (.+?) @main\(", trace, re.MULTILINE)
     return_type = declared[1] if declared else None
     try:
-        return classified(vsmith.classify_alive_exec_output(trace, return_type))
+        result, _ = vsmith.classify_alive_exec_output(trace, return_type)
     except ValueError:
         return Outcome(None, "no recognizable result")
+    if result != UB:
+        return Outcome(result)
+    # An instruction without a name, such as a call, is `<void>`.
+    instruction = find(r"(\S+) = UB triggered!", trace.splitlines())
+    if instruction and instruction[1] != "<void>":
+        return Outcome(UB, f"UB at {code(instruction[1])}")
+    return Outcome(UB, "UB")
 
 
-# `<file>:<line>:<col>: error: <message>` (or `note:`), then the operation it is about.
-DIAGNOSTIC = re.compile(r"^\S+:(\d+):\d+: (?:error|note): (.*)\n\s*(.*)$", re.MULTILINE)
+# `<file>:<line>:<col>: error: <message>` (or `note:`), then the line it is about.
+DIAGNOSTIC = re.compile(r"^\S+:\d+:(\d+): (?:error|note): (.*)\n(.*)$", re.MULTILINE)
 
 
-def veir_outcome(trace: str) -> Outcome:
+def veir_outcome(trace: str) -> Outcome | Stop:
     lines = trace.splitlines()
     status = exit_status(lines)
     if status == TIMEOUT:
-        return Outcome(None, "timeout", timeout=True)
+        return Stop("**timeout**")
     if status == "0" and (output := find(r"Program output: .*", lines)):
-        return Outcome(output[0], code(output[0]))
+        return Outcome(output[0])
     diagnostic = DIAGNOSTIC.search(trace)
     if status == "0" and find(UB, lines):
         if diagnostic:
-            return Outcome(UB, f"UB at {code(diagnostic[3])} (line {diagnostic[1]})")
-        return Outcome(UB, code(UB))
-    if verifier := find(r"Error verifying input program: (.*)", lines):
-        return Outcome(None, f"**verifier**: {code(verifier[1])}")
+            return Outcome(UB, f"UB at {code(operation_name(diagnostic[3].strip()))}")
+        return Outcome(UB, "UB")
+    if verifier := find(r"Error verifying input program: ([\w.]+): (.*)", lines):
+        return Stop(code(verifier[1]), f"verifier says {code(verifier[2])}")
     if diagnostic:
-        return Outcome(None, diagnostic_reason(diagnostic[2], diagnostic[3]))
+        return diagnostic_stop(int(diagnostic[1]), diagnostic[2], diagnostic[3])
     if error := find(r"(?:error|Error): (.*)", lines):
-        return Outcome(None, f"**interpreter**: {code(error[1])}")
-    return Outcome(None, f"crashed with exit status {status}")
+        return Stop("**other**", code(error[1]))
+    return Stop("**crash**", f"exit status {status}")
 
 
-def diagnostic_reason(message: str, operation: str) -> str:
+def diagnostic_stop(column: int, message: str, line: str) -> Stop:
     if message == "failed to interpret operation":
-        return f"**interpreter**: failed at {code(operation_name(operation))}"
-    return f"**parser**: {code(message)}"
+        operation = line.strip()
+        types = operation.rpartition(" : ")[2]
+        return Stop(code(operation_name(operation)), code(types))
+    return Stop("**parser**", f"{code(message)} at {code(token_at(line, column))}")
 
 
 def operation_name(operation: str) -> str:
@@ -155,6 +182,39 @@ def operation_name(operation: str) -> str:
     return name[1] if name else operation
 
 
+def token_at(line: str, column: int) -> str:
+    """
+    The text between spaces at `column`, counted from 1, as a diagnostic points at it.
+
+    >>> token_at('  %2 = "llvm.inttoptr"(%0) : (i64) -> !llvm.ptr<1>', 40)
+    '!llvm.ptr<1>'
+    >>> token_at('  %3 = "llvm.getelementptr" <{elem_type = vector<[4]xi32>, a}>', 43)
+    'vector<[4]xi32>'
+    """
+    start = line.rfind(" ", 0, column - 1) + 1
+    end = line.find(" ", column - 1)
+    return line[start : end if end >= 0 else None].rstrip(",")
+
+
+def readable(output: str) -> str:
+    """
+    >>> readable("Program output: #[]")
+    'void'
+    >>> readable("Program output: #[0xffffffff#32, poison, ptr]")
+    'i32 -1, poison, ptr'
+    """
+    values = output.removeprefix("Program output: #[").removesuffix("]")
+    return ", ".join(map(readable_value, values.split(", "))) if values else "void"
+
+
+def readable_value(value: str) -> str:
+    if bits := re.fullmatch(r"0x([0-9a-fA-F]+)#(\d+)", value):
+        width, unsigned = int(bits[2]), int(bits[1], 16)
+        signed = unsigned - (1 << width) if unsigned >> (width - 1) else unsigned
+        return f"i{width} {signed}"
+    return value
+
+
 # Tests
 
 
@@ -165,18 +225,22 @@ REFERENCES = ("llubi", "alive-exec")
 class Test:
     name: str
     references: tuple[Outcome, Outcome]  # In the order of `REFERENCES`.
-    veir: Outcome
+    veir: Outcome | Stop
 
     @property
     def finished(self) -> bool:
         """Whether veir-interpret ran the test to a result."""
-        return self.veir.result is not None
+        return isinstance(self.veir, Outcome)
 
     def agrees(self, reference: Outcome) -> bool | None:
         """Whether both have the same result; None if one has none."""
-        if not self.finished or reference.result is None:
+        if not isinstance(self.veir, Outcome) or reference.result is None:
             return None
         return reference.result == self.veir.result
+
+    def only_void(self, reference: Outcome) -> bool:
+        """Whether both agree on nothing but `main` returning void."""
+        return bool(self.agrees(reference)) and reference.result == VOID
 
 
 def test(directory: Path, name: str, vsmith: ModuleType) -> Test:
@@ -186,7 +250,7 @@ def test(directory: Path, name: str, vsmith: ModuleType) -> Test:
     return Test(
         name,
         (
-            llubi_outcome(trace("llubi"), vsmith),
+            llubi_outcome(trace("llubi"), source(name), vsmith),
             alive_outcome(trace("alive-exec"), vsmith),
         ),
         veir_outcome(trace("veir")),
@@ -201,6 +265,63 @@ def tests(corpus: Path, vsmith: ModuleType) -> list[Test]:
     ]
 
 
+type Group = tuple[str, list[Test]]
+
+
+def stops(tests: list[Test]) -> list[tuple[str, list[Group]]]:
+    """Where veir-interpret stopped, by operation and then why; most tests first."""
+    by_operation: defaultdict[str, defaultdict[str, list[Test]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for t in tests:
+        if isinstance(t.veir, Stop):
+            by_operation[t.veir.operation][t.veir.why].append(t)
+
+    def ranked(groups: dict[str, list[Test]]) -> list[Group]:
+        return sorted(groups.items(), key=lambda group: -len(group[1]))
+
+    operations = [(operation, ranked(whys)) for operation, whys in by_operation.items()]
+    return sorted(operations, key=lambda item: -sum(len(t) for _, t in item[1]))
+
+
+# Results, and how they changed since the previous run
+
+
+def results(tests: list[Test], veir_commit: str) -> dict[str, Any]:
+    return {
+        "veir": veir_commit,
+        "tests": {
+            t.name: {
+                "finished": t.finished,
+                "agrees": dict(
+                    zip(REFERENCES, map(t.agrees, t.references), strict=True)
+                ),
+            }
+            for t in tests
+        },
+    }
+
+
+def changes(previous: dict[str, Any], tests: list[Test]) -> list[str]:
+    lines: list[str] = []
+    for t in tests:
+        if (before := previous["tests"].get(t.name)) is None:
+            continue
+        if t.finished and not before["finished"]:
+            lines.append(f"- 🟢 {link(t)} now runs to a result")
+        if before["finished"] and not t.finished:
+            lines.append(
+                f"- 🔴 {link(t)} no longer runs to a result ({describe(t.veir)})"
+            )
+        for name, reference in zip(REFERENCES, t.references, strict=True):
+            agrees, agreed = t.agrees(reference), before["agrees"].get(name)
+            if agrees and not agreed:
+                lines.append(f"- 🟢 {link(t)} now agrees with `{name}`")
+            if agreed and not agrees:
+                lines.append(f"- 🔴 {link(t)} no longer agrees with `{name}`")
+    return lines
+
+
 # Rendering
 
 
@@ -208,39 +329,96 @@ def code(text: str) -> str:
     return f"`{text.replace('`', "'").replace('|', '\\|')}`"
 
 
-def file_name(test: Test) -> str:
-    return f"`{test.name}.ll`"
+def plain(text: str) -> str:
+    return text.replace("|", "\\|")
 
 
-def describe(outcome: Outcome) -> str:
-    if outcome.result in (None, UB):
+def source(name: str) -> str:
+    return f"llubi-tests/{name}.ll"
+
+
+def link(test: Test) -> str:
+    return f"[`{test.name}.ll`]({source(test.name)})"
+
+
+def row(cells: Iterable[str]) -> str:
+    return f"| {' | '.join(cells)} |"
+
+
+def describe(outcome: Outcome | Stop) -> str:
+    if isinstance(outcome, Stop):
+        return str(outcome)
+    if outcome.result is None or outcome.result == UB:
         return outcome.detail
-    return code(outcome.result)
+    return f"returned {code(readable(outcome.result))}"
 
 
 def judge(test: Test, reference: Outcome) -> str:
     """The reference's result, marked with whether veir-interpret agrees."""
-    mark = {True: "✅ ", False: "❌ ", None: ""}[test.agrees(reference)]
+    if test.only_void(reference):
+        mark = "⚪ "
+    else:
+        mark = {True: "✅ ", False: "❌ ", None: ""}[test.agrees(reference)]
     return mark + describe(reference)
+
+
+def agreement(tests: list[Test], i: int) -> tuple[str, str]:
+    """
+    Of the tests that have both results, how many agree with reference `i`, and
+    how many of those only on `void`, if any.
+    """
+    answered = [t for t in tests if t.agrees(t.references[i]) is not None]
+    agreeing = sum(bool(t.agrees(t.references[i])) for t in answered)
+    only_void = sum(t.only_void(t.references[i]) for t in answered)
+    return (
+        f"{agreeing}/{len(answered)}",
+        f"{only_void} only on `void`" if only_void else "",
+    )
 
 
 def headline(tests: list[Test]) -> str:
     finished = [t for t in tests if t.finished]
     parts = [f"**{len(finished)}/{len(tests)}** tests run to a result"]
     for i, name in enumerate(REFERENCES):
-        answered = [t for t in finished if t.agrees(t.references[i]) is not None]
-        agreeing = [t for t in answered if t.agrees(t.references[i])]
-        part = f"**{len(agreeing)}/{len(answered)}** of those agree with `{name}`"
-        if missing := len(finished) - len(answered):
-            part += f" ({missing} where `{name}` has no result)"
-        parts.append(part)
-    if timeouts := sum(t.veir.timeout for t in tests):
-        parts.append(f"**{timeouts}** time out")
+        count, note = agreement(finished, i)
+        parts.append(
+            f"**{count}** agree with `{name}`" + (f" ({note})" if note else "")
+        )
     return " · ".join(parts)
 
 
-def row(cells: Iterable[str]) -> str:
-    return f"| {' | '.join(cells)} |"
+def summary_table(tests: list[Test]) -> list[str]:
+    groups = [
+        (
+            "`clean/`, which return normally",
+            [t for t in tests if t.name.startswith("clean/")],
+        ),
+        ("`ub/`, which trigger UB", [t for t in tests if t.name.startswith("ub/")]),
+        ("All", tests),
+    ]
+    return [
+        row(
+            [
+                "Tests",
+                "Run to a result",
+                *(f"Agree with `{name}`" for name in REFERENCES),
+            ]
+        ),
+        row(["--", "-:", *(["-:"] * len(REFERENCES))]),
+        *(
+            row(
+                [
+                    label,
+                    f"{sum(t.finished for t in group)}/{len(group)}",
+                    *(
+                        ", ".join(filter(None, agreement(group, i)))
+                        for i in range(len(REFERENCES))
+                    ),
+                ]
+            )
+            for label, group in groups
+        ),
+    ]
 
 
 def tests_table(tests: list[Test]) -> list[str]:
@@ -248,41 +426,47 @@ def tests_table(tests: list[Test]) -> list[str]:
         row(["Test", "veir-interpret", *REFERENCES]),
         row(["--"] * (2 + len(REFERENCES))),
         *(
-            row([file_name(t), describe(t.veir), *(judge(t, r) for r in t.references)])
+            row([link(t), describe(t.veir), *(judge(t, r) for r in t.references)])
             for t in tests
         ),
     ]
 
 
-def stop_reasons(tests: list[Test]) -> list[tuple[str, list[Test]]]:
-    """Why veir-interpret gave no result, most common first."""
-    by_reason: defaultdict[str, list[Test]] = defaultdict(list)
-    for t in tests:
-        if not t.finished and not t.veir.timeout:
-            by_reason[t.veir.detail].append(t)
-    return sorted(by_reason.items(), key=lambda item: -len(item[1]))
+def whys(groups: list[Group], count: int = 3) -> str:
+    """
+    >>> whys([("`() -> f32`", [None, None]), ("`() -> i1`", [None])], count=1)
+    '`() -> f32` ×2, …'
+    """
+    shown = [why + (f" ×{len(t)}" if len(t) > 1 else "") for why, t in groups if why]
+    return ", ".join(shown[:count] + (["…"] if len(shown) > count else []))
 
 
-def fix_next_table(
-    reasons: list[tuple[str, list[Test]]], total: int, count: int = 5
-) -> list[str]:
+def fix_next_table(stopped: list[tuple[str, list[Group]]], total: int) -> list[str]:
     return [
-        "| # | Reason | Tests affected |",
-        "| -: | -- | -: |",
+        "| # | Operation | Tests affected | Why |",
+        "| -: | -- | -: | -- |",
         *(
-            f"| {rank} | {reason} | {len(stopped)}/{total} |"
-            for rank, (reason, stopped) in enumerate(reasons[:count], start=1)
+            row(
+                [
+                    str(rank),
+                    operation,
+                    f"{sum(len(t) for _, t in groups)}/{total}",
+                    whys(groups),
+                ]
+            )
+            for rank, (operation, groups) in enumerate(stopped[:5], start=1)
         ),
     ]
 
 
-def reasons_table(reasons: list[tuple[str, list[Test]]]) -> list[str]:
+def stops_table(stopped: list[tuple[str, list[Group]]]) -> list[str]:
     return [
-        "| Reason | Tests |",
-        "| -- | -- |",
+        "| Operation | Why | Tests |",
+        "| -- | -- | -- |",
         *(
-            f"| {reason} | {', '.join(map(file_name, stopped))} |"
-            for reason, stopped in reasons
+            row([operation, why, ", ".join(map(link, group))])
+            for operation, groups in stopped
+            for why, group in groups
         ),
     ]
 
@@ -295,9 +479,13 @@ def manifest_table(manifest: list[tuple[str, str, str]]) -> list[str]:
     ]
 
 
-def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
+def render(
+    tests: list[Test],
+    manifest: list[tuple[str, str, str]],
+    previous: tuple[str, dict[str, Any]] | None,
+) -> str:
     mismatches = [t for t in tests if False in map(t.agrees, t.references)]
-    reasons = stop_reasons(tests)
+    stopped = stops(tests)
     lines = [
         "# Veir-Interpreter Scoreboard",
         "",
@@ -306,7 +494,24 @@ def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
         "`Tools/alive-interpret` read them. See [README.md](README.md).",
         "",
         headline(tests),
+        "",
+        *summary_table(tests),
+        "",
+        "Agreement counts the tests that have both results. A test that only returns `void`",
+        "agrees trivially (⚪): llubi's own tests check the values in between, which",
+        "`veir-interpret` does not print.",
     ]
+    if previous:
+        commit, before = previous
+        run = f"[previous run]({SCOREBOARD_REPOSITORY}/blob/{commit}/SCOREBOARD.md)"
+        lines += [
+            "",
+            "## Since the previous run",
+            "",
+            f"Compared with the {run} (`{commit[:12]}`, VeIR `{before['veir'][:12]}`).",
+            "",
+            *(changes(before, tests) or ["Nothing changed."]),
+        ]
     if mismatches:
         lines += [
             "",
@@ -316,20 +521,20 @@ def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
             "",
             *tests_table(mismatches),
         ]
-    if reasons:
+    if stopped:
         lines += [
             "",
             "## Fix next",
             "",
-            "Why `veir-interpret` gives no result, for the most tests. The collapsed table below",
-            "lists every reason, with its tests.",
+            "The operations `veir-interpret` stops at in the most tests, and why: their types,",
+            "or what the verifier or parser says. The collapsed table below lists all of them.",
             "",
-            *fix_next_table(reasons, len(tests)),
+            *fix_next_table(stopped, len(tests)),
             "",
             "<details>",
-            f"<summary>All reasons ({len(reasons)}), with their tests</summary>",
+            f"<summary>All operations `veir-interpret` stops at ({len(stopped)}), with their tests</summary>",
             "",
-            *reasons_table(reasons),
+            *stops_table(stopped),
             "",
             "</details>",
         ]
@@ -337,7 +542,7 @@ def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
         "",
         "## Tests",
         "",
-        "✅ and ❌ mark whether `veir-interpret` has the same result as `llubi` and `alive-exec`.",
+        "✅, ⚪ and ❌ mark whether `veir-interpret` has the same result as `llubi` and `alive-exec`.",
         "",
         "<details>",
         f"<summary>All {len(tests)} tests, those with a result first</summary>",
@@ -353,18 +558,26 @@ def render(tests: list[Test], manifest: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def git(directory: Path, *arguments: str) -> str:
+    command = ["git", "-C", str(directory), *arguments]
+    return subprocess.run(command, capture_output=True, text=True, check=True).stdout
+
+
+def previous_run(results_path: Path) -> tuple[str, dict[str, Any]] | None:
+    """The commit of this repository and the results it holds, if it holds any."""
+    try:
+        commit = git(Path(), "rev-parse", "HEAD").strip()
+        return commit, json.loads(git(Path(), "show", f"HEAD:./{results_path}"))
+    except subprocess.CalledProcessError:
+        return None
+
+
 def read_manifest(
     veir_dir: Path, veir_interpret: Path, corpus_manifest: Path
 ) -> list[tuple[str, str, str]]:
-    def git(*arguments: str) -> str:
-        command = ["git", "-C", str(veir_dir), *arguments]
-        return subprocess.run(
-            command, capture_output=True, text=True, check=True
-        ).stdout
-
-    commit = git("rev-parse", "HEAD").strip()
+    commit = git(veir_dir, "rev-parse", "HEAD").strip()
     revision = f"[`{commit[:12]}`]({VEIR_REPOSITORY}/commit/{commit})"
-    if git("status", "--porcelain", "--untracked-files=no"):
+    if git(veir_dir, "status", "--porcelain", "--untracked-files=no"):
         revision += " with local changes"
     recorded = json.loads(corpus_manifest.read_text())
     return [
@@ -384,16 +597,18 @@ def main() -> int:
     parser.add_argument("--veir-interpret", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--results", type=Path, required=True)
     args = parser.parse_args()
     try:
-        text = render(
-            tests(args.corpus, load_vsmith(args.veir_dir)),
-            read_manifest(args.veir_dir, args.veir_interpret, args.manifest),
-        )
+        scored = tests(args.corpus, load_vsmith(args.veir_dir))
+        manifest = read_manifest(args.veir_dir, args.veir_interpret, args.manifest)
+        text = render(scored, manifest, previous_run(args.results))
+        veir_commit = git(args.veir_dir, "rev-parse", "HEAD").strip()
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     args.output.write_text(text)
+    args.results.write_text(json.dumps(results(scored, veir_commit), indent=2) + "\n")
     return 0
 
 
