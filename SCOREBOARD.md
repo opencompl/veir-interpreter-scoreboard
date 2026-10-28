@@ -18,7 +18,7 @@ agrees trivially (⚪): llubi's own tests check the values in between, which
 
 ## Since the previous run
 
-Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/6ff45c180cc5e4de8d8699f8fa1e0c2dc2b96ca9/SCOREBOARD.md) (`6ff45c180cc5`, VeIR `2261e4094f3f`).
+Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/d8a0902cb80821e591d9a84b41801c38a305378c/SCOREBOARD.md) (`d8a0902cb808`, VeIR `93dd78d478df`).
 
 Nothing changed.
 
@@ -218,7 +218,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 
 | Component | Version | SHA-256 |
 | -- | -- | -- |
-| veir-interpret | [`93dd78d478df`](https://github.com/opencompl/veir/commit/93dd78d478df548d0dcda8a30dd216d835b87d5a) | `2a5dc2a855449ce6b3c3fbc5e89cecd57eb9f88abd7b1e4171ed6be5c480e3f8` |
+| veir-interpret | [`8699ce57cb38`](https://github.com/opencompl/veir/commit/8699ce57cb3885ad736c226ae31f12ca6ee81e65) | `509c3d8bf6e89fd927edee03f6072a8d94889ced82193dd08689ab05873f77aa` |
 | alive-exec | version v21.0-118-gd1533abb-dirty | `f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
