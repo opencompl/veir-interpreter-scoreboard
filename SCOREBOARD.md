@@ -18,7 +18,7 @@ agrees trivially (⚪): llubi's own tests check the values in between, which
 
 ## Since the previous run
 
-Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/4ff0b8b90b6ec9d33f6a75becdff268e00a5df96/SCOREBOARD.md) (`4ff0b8b90b6e`, VeIR `351147753c42`).
+Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/51429f21e8fc50baa0eae26da2a7e9fc0b2a43e4/SCOREBOARD.md) (`51429f21e8fc`, VeIR `a9a69eb71662`).
 
 Nothing changed.
 
@@ -42,10 +42,10 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | # | Operation | Tests affected | Why |
 | -: | -- | -: | -- |
 | 1 | `llvm.call` | 20/102 | `(!llvm.ptr) -> ()` ×16, `() -> i32`, `() -> i16`, … |
-| 2 | `llvm.intr.assume` | 10/102 | `(i1, !llvm.ptr, i32) -> ()` ×3, `(i1, !llvm.ptr) -> ()` ×2, `(i1) -> ()` ×2, … |
+| 2 | `llvm.intr.assume` | 12/102 | `(i1, !llvm.ptr, i32) -> ()` ×3, `(i1, !llvm.ptr) -> ()` ×2, `(i1) -> ()` ×2, … |
 | 3 | `llvm.mlir.constant` | 7/102 | `() -> vector<2xi32>` ×2, `() -> vector<4xi32>` ×2, `() -> vector<4xi1>`, … |
 | 4 | `llvm.fadd` | 7/102 | verifier says `Expected operand 0 to have floating point type` ×6, `(f32, f32) -> f32` |
-| 5 | **parser** | 6/102 | `Expected punctuation '}'` at `!llvm.ptr<1>` ×3, `vector element type expected` at `vector<[4]xi32>` ×2, `vector element type expected` at `vector<[2]x!llvm.ptr>` |
+| 5 | `llvm.mlir.poison` | 4/102 | `() -> f32` ×3, `() -> !llvm.struct<(i32, i32)>` |
 
 <details>
 <summary>All operations `veir-interpret` stops at (26), with their tests</summary>
@@ -62,6 +62,8 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | `llvm.intr.assume` | `(i1) -> ()` | [`ub/assume_false.ll`](llubi-tests/ub/assume_false.ll), [`ub/assume_poison.ll`](llubi-tests/ub/assume_poison.ll) |
 | `llvm.intr.assume` | `(i1, !llvm.ptr, i32, i32) -> ()` | [`ub/assume_non_pow2_align_offset.ll`](llubi-tests/ub/assume_non_pow2_align_offset.ll), [`ub/assume_pow2_align_offset.ll`](llubi-tests/ub/assume_pow2_align_offset.ll) |
 | `llvm.intr.assume` | `(i1, !llvm.ptr, i64) -> ()` | [`ub/assume_invalid_align.ll`](llubi-tests/ub/assume_invalid_align.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr<1>, i32) -> ()` | [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll) |
+| `llvm.intr.assume` | `(i1, !llvm.ptr<1>) -> ()` | [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) |
 | `llvm.mlir.constant` | `() -> vector<2xi32>` | [`clean/bitcast_be.ll`](llubi-tests/clean/bitcast_be.ll), [`clean/bitcast_le.ll`](llubi-tests/clean/bitcast_le.ll) |
 | `llvm.mlir.constant` | `() -> vector<4xi32>` | [`clean/intr_vector_reduce.ll`](llubi-tests/clean/intr_vector_reduce.ll), [`clean/loadstore_overaligned.ll`](llubi-tests/clean/loadstore_overaligned.ll) |
 | `llvm.mlir.constant` | `() -> vector<4xi1>` | [`clean/intr_experimental_vector.ll`](llubi-tests/clean/intr_experimental_vector.ll) |
@@ -69,11 +71,10 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | `llvm.mlir.constant` | `() -> vector<8xi32>` | [`clean/metadata.ll`](llubi-tests/clean/metadata.ll) |
 | `llvm.fadd` | verifier says `Expected operand 0 to have floating point type` | [`clean/fp_arith_bfloat.ll`](llubi-tests/clean/fp_arith_bfloat.ll), [`clean/fp_arith_double.ll`](llubi-tests/clean/fp_arith_double.ll), [`clean/fp_arith_float.ll`](llubi-tests/clean/fp_arith_float.ll), [`clean/fp_arith_fp128.ll`](llubi-tests/clean/fp_arith_fp128.ll), [`clean/fp_arith_fp80.ll`](llubi-tests/clean/fp_arith_fp80.ll), [`clean/fp_arith_half.ll`](llubi-tests/clean/fp_arith_half.ll) |
 | `llvm.fadd` | `(f32, f32) -> f32` | [`clean/fp_denorm.ll`](llubi-tests/clean/fp_denorm.ll) |
-| **parser** | `Expected punctuation '}'` at `!llvm.ptr<1>` | [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll), [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll), [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) |
-| **parser** | `vector element type expected` at `vector<[4]xi32>` | [`clean/gep.ll`](llubi-tests/clean/gep.ll), [`clean/vector.ll`](llubi-tests/clean/vector.ll) |
-| **parser** | `vector element type expected` at `vector<[2]x!llvm.ptr>` | [`clean/global_constexpr_initializer.ll`](llubi-tests/clean/global_constexpr_initializer.ll) |
 | `llvm.mlir.poison` | `() -> f32` | [`clean/intr_fp_fptoi_sat.ll`](llubi-tests/clean/intr_fp_fptoi_sat.ll), [`clean/intr_fp_is_fpclass.ll`](llubi-tests/clean/intr_fp_is_fpclass.ll), [`clean/intr_fp_minmax.ll`](llubi-tests/clean/intr_fp_minmax.ll) |
 | `llvm.mlir.poison` | `() -> !llvm.struct<(i32, i32)>` | [`clean/struct.ll`](llubi-tests/clean/struct.ll) |
+| **parser** | `vector element type expected` at `vector<[4]xi32>` | [`clean/gep.ll`](llubi-tests/clean/gep.ll), [`clean/vector.ll`](llubi-tests/clean/vector.ll) |
+| **parser** | `vector element type expected` at `vector<[2]x!llvm.ptr>` | [`clean/global_constexpr_initializer.ll`](llubi-tests/clean/global_constexpr_initializer.ll) |
 | `llvm.add` | verifier says `Expected operand 0 to have integer type` | [`clean/int_arith.ll`](llubi-tests/clean/int_arith.ll), [`clean/inttoptr_ptrtoint_constantexpr.ll`](llubi-tests/clean/inttoptr_ptrtoint_constantexpr.ll), [`clean/undef.ll`](llubi-tests/clean/undef.ll) |
 | `llvm.mlir.undef` | `() -> vector<2xi32>` | [`clean/intr_arith_overflow.ll`](llubi-tests/clean/intr_arith_overflow.ll) |
 | `llvm.mlir.undef` | `() -> !llvm.struct<(i32, i32)>` | [`ub/attribute_noundef_agg_ub.ll`](llubi-tests/ub/attribute_noundef_agg_ub.ll) |
@@ -81,6 +82,8 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | **other** | `unsupported value of global @g` | [`clean/byval_padding.ll`](llubi-tests/clean/byval_padding.ll) |
 | **other** | `unsupported value of global @constant_dst` | [`ub/intr_memory_constant_ub.ll`](llubi-tests/ub/intr_memory_constant_ub.ll) |
 | `llvm.fdiv` | `(f32, f32) -> f32` | [`clean/fp_fastmath.ll`](llubi-tests/clean/fp_fastmath.ll), [`clean/fp_phi_select.ll`](llubi-tests/clean/fp_phi_select.ll) |
+| `llvm.inttoptr` | `(i8) -> !llvm.ptr` | [`clean/inttoptr.ll`](llubi-tests/clean/inttoptr.ll) |
+| `llvm.inttoptr` | verifier says `Expected the pointer side to have !llvm.ptr type` | [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll) |
 | `llvm.ptrtoaddr` | `(!llvm.ptr) -> i64` | [`clean/ptrtoaddr_after_ptrtoint.ll`](llubi-tests/clean/ptrtoaddr_after_ptrtoint.ll), [`ub/ptrtoaddr_no_expose.ll`](llubi-tests/ub/ptrtoaddr_no_expose.ll) |
 | `llvm.intr.lifetime.start` | `(!llvm.ptr) -> ()` | [`ub/store_dead.ll`](llubi-tests/ub/store_dead.ll), [`ub/store_dead_gep.ll`](llubi-tests/ub/store_dead_gep.ll) |
 | `llvm.sitofp` | verifier says `Expected operand 0 to have integer type` | [`clean/fp_cast.ll`](llubi-tests/clean/fp_cast.ll) |
@@ -94,7 +97,6 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | `llvm.intr.memset.inline` | `(!llvm.ptr, i8) -> ()` | [`clean/intr_memory.ll`](llubi-tests/clean/intr_memory.ll) |
 | `llvm.intr.ssa.copy` | `(i32) -> i32` | [`clean/intr_passthrough.ll`](llubi-tests/clean/intr_passthrough.ll) |
 | `llvm.intr.vscale` | `() -> i32` | [`clean/intr_vscale.ll`](llubi-tests/clean/intr_vscale.ll) |
-| `llvm.inttoptr` | `(i8) -> !llvm.ptr` | [`clean/inttoptr.ll`](llubi-tests/clean/inttoptr.ll) |
 | `llvm.alloca` | `(i32) -> !llvm.ptr` | [`ub/alloca_poison_count.ll`](llubi-tests/ub/alloca_poison_count.ll) |
 | `llvm.func` | verifier says `Expected the last operation of a block to be a terminator` | [`ub/indirectbr_poison.ll`](llubi-tests/ub/indirectbr_poison.ll) |
 
@@ -169,7 +171,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | [`clean/inttoptr_ptrtoint_constantexpr.ll`](llubi-tests/clean/inttoptr_ptrtoint_constantexpr.ll) | `llvm.add`: verifier says `Expected operand 0 to have integer type` | returned `void` | crashed |
 | [`clean/loadstore_overaligned.ll`](llubi-tests/clean/loadstore_overaligned.ll) | `llvm.mlir.constant`: `() -> vector<4xi32>` | returned `void` | failed: `Severe Z3 error` |
 | [`clean/metadata.ll`](llubi-tests/clean/metadata.ll) | `llvm.mlir.constant`: `() -> vector<8xi32>` | returned `void` | rejected: `Unsupported metadata: 47` |
-| [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | returned `void` | rejected: `Unsupported instruction:   %wide1 = inttoptr i64 4294967301 to ptr addrspace(1)` |
+| [`clean/ptrtoaddr.ll`](llubi-tests/clean/ptrtoaddr.ll) | `llvm.inttoptr`: verifier says `Expected the pointer side to have !llvm.ptr type` | returned `void` | rejected: `Unsupported instruction:   %wide1 = inttoptr i64 4294967301 to ptr addrspace(1)` |
 | [`clean/ptrtoaddr_after_ptrtoint.ll`](llubi-tests/clean/ptrtoaddr_after_ptrtoint.ll) | `llvm.ptrtoaddr`: `(!llvm.ptr) -> i64` | returned `void` | failed: `Severe Z3 error` |
 | [`clean/reset_return_value_slot.ll`](llubi-tests/clean/reset_return_value_slot.ll) | `llvm.call`: `() -> i16` | returned `void` | failed: `Severe Z3 error` |
 | [`clean/struct.ll`](llubi-tests/clean/struct.ll) | `llvm.mlir.poison`: `() -> !llvm.struct<(i32, i32)>` | returned `void` | failed: `Severe Z3 error` |
@@ -179,11 +181,11 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | [`ub/assume_false.ll`](llubi-tests/ub/assume_false.ll) | `llvm.intr.assume`: `(i1) -> ()` | UB at [line 5](llubi-tests/ub/assume_false.ll#L5): Assume on false or poison condition. | UB at `assume` |
 | [`ub/assume_invalid_align.ll`](llubi-tests/ub/assume_invalid_align.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i64) -> ()` | UB at [line 9](llubi-tests/ub/assume_invalid_align.ll#L9): The pointer ptr 0x8 [alloc] violates align(4294967296) assumption. | UB at `assume` |
 | [`ub/assume_misalign.ll`](llubi-tests/ub/assume_misalign.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 6](llubi-tests/ub/assume_misalign.ll#L6): The pointer ptr 0x8 [alloc] violates align(2048) assumption. | UB at `assume` |
-| [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | UB at [line 7](llubi-tests/ub/assume_misalign_all_ones.ll#L7): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates align(2048) assumption. | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "align"(ptr addrspace(1) null, i32 2048) ]` |
+| [`ub/assume_misalign_all_ones.ll`](llubi-tests/ub/assume_misalign_all_ones.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr<1>, i32) -> ()` | UB at [line 7](llubi-tests/ub/assume_misalign_all_ones.ll#L7): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates align(2048) assumption. | rejected: `Unsupported instruction:   call void @llvm.assume(i1 true) [ "align"(ptr addrspace(1) null, i32 2048) ]` |
 | [`ub/assume_non_pow2_align_offset.ll`](llubi-tests/ub/assume_non_pow2_align_offset.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32, i32) -> ()` | UB at [line 9](llubi-tests/ub/assume_non_pow2_align_offset.ll#L9): Assume on pointer ptr 0x8 [alloc] with a nonzero adjusted address and a non-power-of-two alignment 17. | UB at `assume` |
 | [`ub/assume_nondereferenceable.ll`](llubi-tests/ub/assume_nondereferenceable.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 6](llubi-tests/ub/assume_nondereferenceable.ll#L6): The pointer ptr 0x8 [alloc] violates dereferenceable(2048) assumption. | UB at `assume` |
 | [`ub/assume_null.ll`](llubi-tests/ub/assume_null.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr) -> ()` | UB at [line 5](llubi-tests/ub/assume_null.ll#L5): The pointer ptr 0x0 [nullary] violates nonnull assumption. | UB at `assume` |
-| [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) | **parser**: `Expected punctuation '}'` at `!llvm.ptr<1>` | UB at [line 10](llubi-tests/ub/assume_null_all_ones.ll#L10): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates nonnull assumption. | rejected: `Unsupported instruction:   %res = load ptr addrspace(1), ptr %storage, align 8` |
+| [`ub/assume_null_all_ones.ll`](llubi-tests/ub/assume_null_all_ones.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr<1>) -> ()` | UB at [line 10](llubi-tests/ub/assume_null_all_ones.ll#L10): The pointer ptr 0xFFFFFFFFFFFFFFFF [nullary] violates nonnull assumption. | rejected: `Unsupported instruction:   %res = load ptr addrspace(1), ptr %storage, align 8` |
 | [`ub/assume_poison.ll`](llubi-tests/ub/assume_poison.ll) | `llvm.intr.assume`: `(i1) -> ()` | UB at [line 5](llubi-tests/ub/assume_poison.ll#L5): The value poison violates noundef attribute. | UB at `assume` |
 | [`ub/assume_poison_align.ll`](llubi-tests/ub/assume_poison_align.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32) -> ()` | UB at [line 5](llubi-tests/ub/assume_poison_align.ll#L5): Assume on poison pointer. | UB at `assume` |
 | [`ub/assume_pow2_align_offset.ll`](llubi-tests/ub/assume_pow2_align_offset.ll) | `llvm.intr.assume`: `(i1, !llvm.ptr, i32, i32) -> ()` | UB at [line 9](llubi-tests/ub/assume_pow2_align_offset.ll#L9): The pointer ptr 0x8 [alloc] violates align(16) assumption. | UB at `assume` |
@@ -218,7 +220,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 
 | Component | Version | SHA-256 |
 | -- | -- | -- |
-| veir-interpret | [`a9a69eb71662`](https://github.com/opencompl/veir/commit/a9a69eb71662e2025c4cc9dbcd9249f49379483b) | `1a38ad543a8060a7836c4fe1d729bab365835d16cd4ab8f4614eac1d3a7af29e` |
+| veir-interpret | [`03e1b77d7aac`](https://github.com/opencompl/veir/commit/03e1b77d7aac47ed950666a754858672c453e959) | `7c2406573ae30834ca19364fbfcacc1c21e09f7c757a43e3c6fb348f2f532a5a` |
 | alive-exec | version v21.0-118-gd1533abb-dirty | `f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
