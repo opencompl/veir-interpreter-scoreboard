@@ -18,7 +18,7 @@ agrees trivially (⚪): llubi's own tests check the values in between, which
 
 ## Since the previous run
 
-Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/8dab37a6ca941b420ebb3d98545da90ec5093802/SCOREBOARD.md) (`8dab37a6ca94`, VeIR `5e96b355b4df`).
+Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/fcb030aac88bb7e7f0bd8f855d4ebeaa07b8c287/SCOREBOARD.md) (`fcb030aac88b`, VeIR `5044af9833eb`).
 
 Nothing changed.
 
@@ -220,7 +220,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 
 | Component | Version | SHA-256 |
 | -- | -- | -- |
-| veir-interpret | [`5044af9833eb`](https://github.com/opencompl/veir/commit/5044af9833ebb8ad5667b5118dc74716205b9853) | `ca88fc51ecb9b3605288788e49f63091d54373016a933388229a2e925ca4f68f` |
+| veir-interpret | [`1fe869b85d89`](https://github.com/opencompl/veir/commit/1fe869b85d89f676d3bc6714a23ab4a87add53db) | `ca88fc51ecb9b3605288788e49f63091d54373016a933388229a2e925ca4f68f` |
 | alive-exec | version v21.0-118-gd1533abb-dirty | `f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
