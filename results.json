@@ -1,5 +1,5 @@
 {
-  "veir": "e253470804a6654c1043146b414a266a7c0c0fa1",
+  "veir": "ca6f222320d9e7ece5011f9ec0c5bc7b8fc54d3e",
   "tests": {
     "clean/alloca": {
       "finished": false,
@@ -627,15 +627,15 @@
     "ub/inttoptr_multiobj": {
       "finished": true,
       "agrees": {
-        "llubi": true,
-        "alive-exec": true
+        "llubi": false,
+        "alive-exec": false
       }
     },
     "ub/inttoptr_multiobj2": {
       "finished": true,
       "agrees": {
-        "llubi": true,
-        "alive-exec": true
+        "llubi": false,
+        "alive-exec": false
       }
     },
     "ub/inttoptr_oob": {

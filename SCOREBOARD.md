@@ -4,13 +4,13 @@ We run `veir-interpret` on the tests in `llubi-tests` and compare its results wi
 `llubi` and Alive2's `alive-exec`, read the way VeIR's `Tools/llubi-interpret` and
 `Tools/alive-interpret` read them. See [README.md](README.md).
 
-**20/102** tests run to a result · **15/20** agree with `llubi` (3 only on `void`) · **8/13** agree with `alive-exec`
+**20/102** tests run to a result · **13/20** agree with `llubi` (3 only on `void`) · **6/13** agree with `alive-exec`
 
 | Tests | Run to a result | Agree with `llubi` | Agree with `alive-exec` |
 | -- | -: | -: | -: |
 | `clean/`, which return normally | 4/50 | 4/4, 3 only on `void` | 1/1 |
-| `ub/`, which trigger UB | 16/52 | 11/16 | 7/12 |
-| All | 20/102 | 15/20, 3 only on `void` | 8/13 |
+| `ub/`, which trigger UB | 16/52 | 9/16 | 5/12 |
+| All | 20/102 | 13/20, 3 only on `void` | 6/13 |
 
 Agreement counts the tests that have both results. A test that only returns `void`
 agrees trivially (⚪): llubi's own tests check the values in between, which
@@ -18,9 +18,12 @@ agrees trivially (⚪): llubi's own tests check the values in between, which
 
 ## Since the previous run
 
-Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/2bf1025a7ce62caf71f20928255c1361b0c6cf2b/SCOREBOARD.md) (`2bf1025a7ce6`, VeIR `e3293878d9d1`).
+Compared with the [previous run](https://github.com/opencompl/veir-interpreter-scoreboard/blob/b942980436aa3ab9866792f194459873668a0704/SCOREBOARD.md) (`b942980436aa`, VeIR `e253470804a6`).
 
-Nothing changed.
+- 🔴 [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) no longer agrees with `llubi`
+- 🔴 [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) no longer agrees with `alive-exec`
+- 🔴 [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) no longer agrees with `llubi`
+- 🔴 [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) no longer agrees with `alive-exec`
 
 ## Mismatches
 
@@ -30,6 +33,8 @@ Nothing changed.
 | -- | -- | -- | -- |
 | [`ub/global_constant_store.ll`](llubi-tests/ub/global_constant_store.ll) | returned `void` | ❌ UB at [line 6](llubi-tests/ub/global_constant_store.ll#L6): Try to write to a constant memory object: ptr 0x8 [@constant]. | ❌ UB at `store` |
 | [`ub/inttoptr_gep.ll`](llubi-tests/ub/inttoptr_gep.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_gep.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep_oob` |
+| [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_multiobj.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep2` |
+| [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) | returned `void` | ❌ UB at [line 24](llubi-tests/ub/inttoptr_multiobj2.ll#L24): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep2` |
 | [`ub/load_noundef_ub_poison.ll`](llubi-tests/ub/load_noundef_ub_poison.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_poison.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
 | [`ub/load_noundef_ub_undef.ll`](llubi-tests/ub/load_noundef_ub_undef.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_undef.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
 | [`ub/metadata_noundef_ub.ll`](llubi-tests/ub/metadata_noundef_ub.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/metadata_noundef_ub.ll#L7): The value poison violates !noundef metadata. | ❌ UB at `assume` |
@@ -122,8 +127,8 @@ or what the verifier or parser says. The collapsed table below lists all of them
 | [`ub/inttoptr_generation.ll`](llubi-tests/ub/inttoptr_generation.ll) | UB at `llvm.store` | ✅ UB at [line 19](llubi-tests/ub/inttoptr_generation.ll#L19): Invalid memory access via a pointer with nullary provenance. | failed: `Severe Z3 error` |
 | [`ub/inttoptr_generation2.ll`](llubi-tests/ub/inttoptr_generation2.ll) | UB at `llvm.store` | ✅ UB at [line 22](llubi-tests/ub/inttoptr_generation2.ll#L22): Invalid memory access via a pointer with nullary provenance. | failed: `Severe Z3 error` |
 | [`ub/inttoptr_gep.ll`](llubi-tests/ub/inttoptr_gep.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_gep.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep_oob` |
-| [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) | UB at `llvm.store` | ✅ UB at [line 23](llubi-tests/ub/inttoptr_multiobj.ll#L23): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%gep2` |
-| [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) | UB at `llvm.store` | ✅ UB at [line 24](llubi-tests/ub/inttoptr_multiobj2.ll#L24): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%gep2` |
+| [`ub/inttoptr_multiobj.ll`](llubi-tests/ub/inttoptr_multiobj.ll) | returned `void` | ❌ UB at [line 23](llubi-tests/ub/inttoptr_multiobj.ll#L23): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep2` |
+| [`ub/inttoptr_multiobj2.ll`](llubi-tests/ub/inttoptr_multiobj2.ll) | returned `void` | ❌ UB at [line 24](llubi-tests/ub/inttoptr_multiobj2.ll#L24): Invalid memory access via a pointer with nullary provenance. | ❌ UB at `%gep2` |
 | [`ub/inttoptr_oob.ll`](llubi-tests/ub/inttoptr_oob.ll) | UB at `llvm.store` | ✅ UB at [line 16](llubi-tests/ub/inttoptr_oob.ll#L16): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%ptr_inbounds_resolved` |
 | [`ub/inttoptr_oob2.ll`](llubi-tests/ub/inttoptr_oob2.ll) | UB at `llvm.store` | ✅ UB at [line 18](llubi-tests/ub/inttoptr_oob2.ll#L18): Invalid memory access via a pointer with nullary provenance. | ✅ UB at `%ptr_inbounds_resolved` |
 | [`ub/load_noundef_ub_poison.ll`](llubi-tests/ub/load_noundef_ub_poison.ll) | returned `void` | ❌ UB at [line 7](llubi-tests/ub/load_noundef_ub_poison.ll#L7): The value loaded contains undefined bits. | ❌ UB at `assume` |
@@ -220,7 +225,7 @@ or what the verifier or parser says. The collapsed table below lists all of them
 
 | Component | Version | SHA-256 |
 | -- | -- | -- |
-| veir-interpret | [`e253470804a6`](https://github.com/opencompl/veir/commit/e253470804a6654c1043146b414a266a7c0c0fa1) | `daa92b3528129dce01b910be187752b619583fa95304989ef60255df395e99dd` |
+| veir-interpret | [`ca6f222320d9`](https://github.com/opencompl/veir/commit/ca6f222320d9e7ece5011f9ec0c5bc7b8fc54d3e) | `b61a82179a03c72697d5220af21edf818b378f291e23aceee518ea46ad4f5415` |
 | alive-exec | version v21.0-118-gd1533abb-dirty | `f7498df7a22508f22fd2de3f81e08ed5a3214c8e9e8e4555fad8db050a6b83d1` |
 | llubi | LLVM version 23.1.0-rc1 | `1acd08617c94e77035ea3dbd8e3ad270ae1f73bafcabef884e981cffb834fce2` |
 | mlir-translate | LLVM version 23.1.0-rc1 | `34403b40057d9708b425463f45d84a2c239dc15264da6c1e63ce1973ff975bb8` |
